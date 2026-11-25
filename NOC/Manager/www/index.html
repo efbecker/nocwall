@@ -124,11 +124,24 @@
   .card.s-pause img { filter: grayscale(1) brightness(.35); }
   @keyframes pulse { 50% { opacity: .35; } }
   .tag { font-size: 10px; padding: 0 5px; border-radius: 3px; background: #4a3a12; color: #ffd58a; }
-  .card .acts { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 4px; justify-content: center;
-    padding: 14px 6px 6px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.85)); opacity: 0; transition: opacity .15s; }
-  .card:hover .acts, .card:focus-within .acts { opacity: 1; }
-  .card .acts button, .card .acts a { font-size: 11px; padding: 2px 7px; background: rgba(20,40,51,.95); border: 1px solid var(--line);
-    border-radius: 5px; color: var(--text); text-decoration: none; cursor: pointer; }
+  /* acoes do cartao: ao passar o mouse cobrem o corpo do cartao (abaixo do titulo), quebram linha e
+     nunca ficam cortadas; em cartao pequeno viram icones (o nome aparece ao parar o mouse em cima) */
+  .card .in { container-type: size; }
+  .card .acts { position: absolute; left: 0; right: 0; top: 26px; bottom: 0; display: flex; flex-wrap: wrap; gap: 5px;
+    align-content: center; justify-content: center; padding: 4px 6px; background: rgba(3,9,12,.78);
+    opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .card:hover .acts, .card:focus-within .acts { opacity: 1; pointer-events: auto; }
+  .card .acts button, .card .acts a { display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    min-height: 26px; min-width: 26px; font-size: 12px; padding: 3px 9px; white-space: nowrap;
+    background: rgba(20,40,51,.97); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    text-decoration: none; cursor: pointer; }
+  .card .acts button:hover, .card .acts a:hover { border-color: var(--accent); color: #fff; }
+  .card .acts .ic { font-size: 13px; line-height: 1; }
+  @container (max-width: 300px) {
+    .card .acts { gap: 4px; padding: 3px; }
+    .card .acts .lb { display: none; }
+    .card .acts button, .card .acts a { width: 30px; height: 28px; padding: 0; font-size: 14px; }
+  }
   .card .busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5,12,16,.62);
     font-size: 13px; font-weight: 600; color: #fff; }
   .card .busy span { display: inline-flex; gap: 8px; align-items: center; background: rgba(0,0,0,.6); padding: 5px 12px; border-radius: 99px; }
@@ -221,7 +234,7 @@
     .screen { display: none; }
     .card { position: relative !important; left: auto !important; top: auto !important; width: auto !important; height: auto !important;
       aspect-ratio: 16 / 9; padding: 0; }
-    .card .acts { opacity: 1; }
+    .card .acts { opacity: 1; pointer-events: auto; top: auto; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.85)); padding: 14px 6px 6px; }
     .legend { margin-top: 12px; }
     .row4 { grid-template-columns: 1fr; }
     #toast { left: 12px; right: 12px; }
@@ -657,12 +670,12 @@ function buildWall() {
           el("span", { class: "pill", id: "pill" + n }, el("i"), el("span", { id: "pillt" + n, text: "…" }))),
         el("div", { class: "busy hidden", id: "busy" + n }, el("span", {}, el("div", { class: "spin" }), el("b", { id: "busyt" + n }))),
         can("operador") ? el("div", { class: "acts" },
-          el("button", { text: "Editar", onclick: () => openEdit(n) }),
-          el("button", { text: "Recarregar", onclick: () => panelAction(n, "recarregar") }),
-          el("button", { text: "Reabrir", onclick: () => panelAction(n, "reabrir") }),
-          ar && can("admin") ? el("button", { text: "Separar", title: "Volta a ser painéis independentes", onclick: () => splitArea(n) }) : null,
-          el("a", { href: "#", id: "open" + n, target: "_blank", rel: "noopener noreferrer", text: "Abrir ↗", title: "Abrir este dashboard no seu navegador" }))
-          : el("div", { class: "acts" }, el("a", { href: "#", id: "open" + n, target: "_blank", rel: "noopener noreferrer", text: "Abrir ↗" }))));
+          cardAct("✎", "Editar", "Editar nome, link e zoom", () => openEdit(n)),
+          cardAct("⟳", "Recarregar", "Recarregar (F5 sem cache)", () => panelAction(n, "recarregar")),
+          cardAct("↻", "Reabrir", "Fechar e reabrir a janela", () => panelAction(n, "reabrir")),
+          ar && can("admin") ? cardAct("⊟", "Separar", "Volta a ser painéis independentes", () => splitArea(n)) : null,
+          cardOpen(n))
+          : el("div", { class: "acts" }, cardOpen(n))));
     Object.assign(card.style, { left: pct(tl.x - minX, W), top: pct(tl.y - minY, H), width: pct(gw, W), height: pct(gh, H), aspectRatio: `${gw} / ${gh}` });
     if (can("operador")) wireDrop(card, n);
     // modo mosaico: clicar seleciona (captura antes dos botoes do cartao)
@@ -943,6 +956,14 @@ async function panelAction(n, acao) {
   } catch (e) { clearBusy(n); toast(e.message, true); }
 }
 
+// botoes do cartao: icone + texto (o texto some em cartao pequeno; o title continua explicando)
+function cardAct(ic, label, title, onclick) {
+  return el("button", { title, "aria-label": label, onclick }, el("span", { class: "ic", text: ic }), el("span", { class: "lb", text: label }));
+}
+function cardOpen(n) {
+  return el("a", { href: "#", id: "open" + n, target: "_blank", rel: "noopener noreferrer", title: "Abrir este dashboard no seu navegador", "aria-label": "Abrir" },
+    el("span", { class: "ic", text: "↗" }), el("span", { class: "lb", text: "Abrir" }));
+}
 // aplica varios paineis (troca, biblioteca, desfazer) com progresso e Desfazer
 async function applyLote(paineis, motivo, okMsg, allowUndo = true) {
   for (const p of paineis) startBusy(p.n, "Trocando link…");
