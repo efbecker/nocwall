@@ -17,6 +17,10 @@
   Trocar so o certificado (ex.: curinga):
     ... Install-NocManager.ps1 -WallUser admin -PfxPath C:\temp\armazem.pfx   (pede a senha do PFX)
   Remover tudo:  ... Install-NocManager.ps1 -Remover
+
+  -Setup (usado pelo install.ps1): instala SEM perguntas. Nao cria o admin nem a tarefa da parede;
+  o Scry sobe em modo de configuracao e o resto e feito no navegador (assistente com codigo).
+  Sem -HostName, o certificado cobre o nome e o IP do PC e o endereco e o proprio IP.
 #>
 param(
   [string]$WallUser,
@@ -29,6 +33,7 @@ param(
   [Security.SecureString]$PfxPassword,
   [string]$IpAddress,
   [string]$Root = "C:\NOC",
+  [switch]$Setup,
   [switch]$Remover
 )
 $ErrorActionPreference = 'Stop'
@@ -69,7 +74,12 @@ Write-Host "[1/5] Arquivos desbloqueados." -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- 2. admin
 $usersFile = Join-Path $Root 'Manager\users.json'
-if (-not (Test-Path $usersFile)) {
+# -Setup sem -HostName: endereco = IP do PC (o redirecionamento http -> https usa o endereco digitado)
+$hostFromIp = $Setup -and -not $PSBoundParameters.ContainsKey('HostName')
+if ($hostFromIp) { $HostName = $env:COMPUTERNAME }
+if ($Setup -and -not (Test-Path $usersFile)) {
+  Write-Host "[2/5] Admin: sera criado no assistente de configuracao (navegador)." -ForegroundColor Cyan
+} elseif (-not (Test-Path $usersFile)) {
   Write-Host "[2/5] Criando o primeiro administrador (usuario: admin)" -ForegroundColor Cyan
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $manager -Root $Root -NovoAdmin admin
   if (-not (Test-Path $usersFile)) { throw "Admin nao foi criado." }
@@ -124,7 +134,7 @@ if ($PfxPath) {
     Sort-Object @{ Expression = { $_.Subject -ne $_.Issuer }; Descending = $true }, @{ Expression = 'NotAfter'; Descending = $true } |
     Select-Object -First 1
   if (-not $cert) {
-    $san = "DNS=$HostName&DNS=$($env:COMPUTERNAME)&IPAddress=$IpAddress"
+    $san = "DNS=$HostName" + $(if ($HostName -ne $env:COMPUTERNAME) { "&DNS=$($env:COMPUTERNAME)" } else { '' }) + "&IPAddress=$IpAddress"
     $cert = New-SelfSignedCertificate -CertStoreLocation Cert:\LocalMachine\My -FriendlyName 'NOC Manager' `
       -Subject "CN=$HostName" -TextExtension @("2.5.29.17={text}$san") `
       -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 2048 -NotAfter (Get-Date).AddYears(5)
@@ -153,11 +163,12 @@ if ($fwOff) { Write-Warning "Firewall do Windows desligado nos perfis: $($fwOff 
 
 # ---------------------------------------------------------------- 5. tarefas
 # 5a. Parede: roda na sessao do usuario logado, sem janela (via wscript), a cada 5 min
-if (-not $WallUser) {
+if (-not $WallUser -and -not $Setup) {
   $WallUser = (Get-CimInstance Win32_ComputerSystem).UserName
   if (-not $WallUser) { throw "Informe -WallUser (usuario que fica logado na parede)." }
 }
 $vbs = Join-Path $Root 'run-hidden.vbs'
+if ($WallUser) {
 $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$startWall"""
 Set-Content -Path $vbs -Encoding ASCII -Value ("CreateObject(""WScript.Shell"").Run ""{0}"", 0, False" -f ($cmd -replace '"', '""'))
 
@@ -167,13 +178,17 @@ $tRep   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -Repetitio
 $pWall  = New-ScheduledTaskPrincipal -UserId $WallUser -LogonType Interactive -RunLevel Limited
 $sWall  = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName 'NOC-VideoWall' -Action $aWall -Trigger @($tLogon, $tRep) -Principal $pWall -Settings $sWall -Force | Out-Null
+}
 
 # 5b. Gerenciador: SYSTEM, no boot e a cada 5 min, sem limite de tempo
 $publicUrl = "https://$HostName" + $(if ($Port -ne 443) { ":$Port" } else { "" })
+if ($hostFromIp) { $publicUrl = "https://$IpAddress" + $(if ($Port -ne 443) { ":$Port" } else { "" }) }
 $extra = @()
 if (-not $SemHttp) { $extra += "http://+:80/" }
 if ($LegacyPort -gt 0 -and $LegacyPort -ne $Port) { $extra += "https://+:$LegacyPort/" }
-$mgrArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$manager`" -Root `"$Root`" -Prefix `"https://+:$Port/`" -PublicUrl `"$publicUrl`" -AllowFrom `"$($remote -join ',')`""
+$mgrArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$manager`" -Root `"$Root`" -Prefix `"https://+:$Port/`" -AllowFrom `"$($remote -join ',')`""
+# com endereco fixo (DNS), tudo redireciona para ele; sem (-Setup pelo IP), redireciona para o endereco digitado
+if (-not $hostFromIp) { $mgrArgs += " -PublicUrl `"$publicUrl`"" }
 if ($extra) { $mgrArgs += " -ExtraPrefixes `"$($extra -join ',')`"" }
 $aMgr = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $mgrArgs
 $tBoot = New-ScheduledTaskTrigger -AtStartup
@@ -191,13 +206,15 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 1
 Start-ScheduledTask -TaskName 'NOC-Manager'
-Write-Host "[5/5] Tarefas NOC-VideoWall ($WallUser) e NOC-Manager (SYSTEM) registradas." -ForegroundColor Cyan
+if ($WallUser) { Write-Host "[5/5] Tarefas NOC-VideoWall ($WallUser) e NOC-Manager (SYSTEM) registradas." -ForegroundColor Cyan }
+else { Write-Host "[5/5] Tarefa NOC-Manager (SYSTEM) registrada. A da parede sera criada no assistente." -ForegroundColor Cyan }
 
 Start-Sleep -Seconds 5
 $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 Write-Host ""
 if ($listening) {
-  Write-Host "Pronto! Acesse: $publicUrl   (usuario: admin)" -ForegroundColor Green
+  if ($Setup -and -not (Test-Path $usersFile)) { Write-Host "Servidor no ar em $publicUrl (modo de configuracao)." -ForegroundColor Green }
+  else { Write-Host "Pronto! Acesse: $publicUrl   (usuario: admin)" -ForegroundColor Green }
   if (-not $PfxPath -and $cert.Issuer -eq $cert.Subject) {
     Write-Host "Certificado autoassinado: o navegador vai avisar. Confira a impressao digital:"
     Write-Host "  $($cert.Thumbprint)"

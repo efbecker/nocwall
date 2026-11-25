@@ -558,6 +558,7 @@ async function api(method, path, body) {
   });
   let data = null;
   try { data = await r.json(); } catch (_) {}
+  if (r.status === 409 && data && data.setup) { location.reload(); throw new Error(data.erro); }   // configuracao inicial pendente
   if (r.status === 401 && path !== "/api/login") { showLogin(); throw new Error((data && data.erro) || "Sessão expirada."); }
   if (!r.ok) throw new Error((data && data.erro) || ("Erro " + r.status));
   return data;

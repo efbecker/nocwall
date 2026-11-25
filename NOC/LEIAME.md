@@ -20,6 +20,7 @@ C:\NOC\
   Manager\
     NocManager.ps1          servidor HTTPS (PowerShell puro)
     www\index.html          interface
+    www\setup.html          assistente de configuração (só aparece enquanto não existe nenhum usuário)
     users.json  audit.log  diag.log
     backups\                backups do Update (só SYSTEM e Administradores)
 ```
@@ -27,6 +28,8 @@ C:\NOC\
 ## Instalação (primeira vez, PowerShell como Administrador)
 
 > Passo a passo completo para um PC novo (pré-requisitos, credencial do Grafana, DNS e certificado): **[INSTALAR.md](INSTALAR.md)**.
+>
+> **Mais simples ainda:** no PowerShell como Administrador, `irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex`. Ele instala sem perguntas e mostra um endereço e um código; o resto (admin, usuário da parede, logon automático) é feito no navegador. Veja o [README](../README.md#instalação-deploy).
 >
 > **Mais simples:** extraia o pacote em qualquer pasta e dê dois cliques em `INSTALAR.cmd`. Ele copia para `C:\NOC`, pergunta o necessário e roda o instalador abaixo.
 

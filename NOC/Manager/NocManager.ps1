@@ -8,6 +8,12 @@
     powershell -ExecutionPolicy Bypass -File C:\NOC\Manager\NocManager.ps1
   Criar/redefinir um admin:
     powershell -ExecutionPolicy Bypass -File C:\NOC\Manager\NocManager.ps1 -NovoAdmin admin
+  Gerar o codigo do assistente de configuracao (so enquanto nao existe nenhum usuario):
+    powershell -ExecutionPolicy Bypass -File C:\NOC\Manager\NocManager.ps1 -NovoCodigo
+
+  Sem nenhum usuario cadastrado, o servidor sobe em MODO DE CONFIGURACAO: a pagina inicial vira um
+  assistente que pede o codigo de uso unico (setup.json), cria o admin, registra a tarefa da parede e,
+  se pedido, ativa o logon automatico do Windows. Concluido, o assistente some.
 
   Arquivo em ASCII de proposito (PowerShell 5.1 le UTF-8 sem BOM como ANSI).
 #>
@@ -19,11 +25,12 @@ param(
   [string]$AllowFrom = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",   # so redes internas (alem de localhost)
   [string]$WallTask = "NOC-VideoWall",
   [int]$MaxMemMB    = 800,
-  [string]$NovoAdmin
+  [string]$NovoAdmin,
+  [switch]$NovoCodigo
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.5.2'
+$Version     = '1.6.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -32,7 +39,8 @@ $UsersFile   = Join-Path $ManagerDir 'users.json'
 $AuditFile   = Join-Path $ManagerDir 'audit.log'
 $WwwDir      = Join-Path $ManagerDir 'www'
 $ProfilesDir = Join-Path $Root 'profiles'
-$ManutStateFile = Join-Path $ManagerDir 'manutencao-estado.json'   # data da ultima reabertura diaria
+$ManutStateFile = Join-Path $ManagerDir 'manutencao-estado.json'
+$SetupFile   = Join-Path $ManagerDir 'setup.json'                # codigo do assistente (so o hash)   # data da ultima reabertura diaria
 $StartedAt   = Get-Date
 $BasePort    = 9300
 $PanelCount  = 10
@@ -128,6 +136,24 @@ function Save-Users($u) { Write-JsonFile $UsersFile $u }
 function Test-NewPassword([string]$p) {
   if ($p.Length -lt 10) { return "A senha precisa ter pelo menos 10 caracteres." }
   return $null
+}
+
+# ---------------------------------------------------------------- configuracao inicial (assistente web)
+function Test-SetupPending { return (-not @((Get-Users).usuarios | Where-Object { $_.ativo }).Count) }
+function Format-SetupCode([string]$c) { return ($c.ToUpper() -replace '[^A-Z0-9]', '') }
+
+if ($NovoCodigo) {
+  if (-not (Test-SetupPending)) { throw "Ja existe usuario cadastrado: a configuracao inicial ja foi feita. Entre pela pagina com o admin." }
+  if (-not (Test-Path $ManagerDir)) { New-Item -ItemType Directory -Path $ManagerDir -Force | Out-Null }
+  $alfa = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'          # 32 simbolos, sem 0/O e 1/I
+  $rb = New-Object byte[] 8
+  [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($rb)
+  $code = -join ($rb | ForEach-Object { $alfa[$_ % 32] })
+  Write-JsonFile $SetupFile ([pscustomobject]@{
+    hash = (New-PasswordHash $code); criado = (Get-Date -Format s); expira = (Get-Date).AddHours(24).ToString('s') })
+  Write-Audit "console" "local" "SETUP_CODIGO_GERADO" "valido por 24 h"
+  Write-Output ("CODIGO=" + $code.Substring(0, 4) + '-' + $code.Substring(4))
+  return
 }
 
 # ---------------------------------------------------------------- modo: criar admin
@@ -852,6 +878,197 @@ function Get-PublicUser($u) {
   return [pscustomobject]@{ usuario = $u.usuario; nome = $u.nome; papel = $u.papel; ativo = [bool]$u.ativo; criado = $u.criado }
 }
 
+# ---------------------------------------------------------------- assistente de configuracao
+$SetupTokens = @{}   # token -> validade (depois de informar o codigo)
+
+function Find-Chrome {
+  return (@(
+    (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+  ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1)
+}
+
+function Get-SetupInfo {
+  $logado = $null; try { $logado = (Get-CimInstance Win32_ComputerSystem).UserName } catch {}
+  # contas locais ativas, sem as internas (Convidado -501, DefaultAccount -503, WDAGUtilityAccount -504)
+  $locais = @()
+  try { $locais = @(Get-LocalUser | Where-Object { $_.Enabled -and $_.SID.Value -notmatch '-(501|503|504)$' } | ForEach-Object { "$env:COMPUTERNAME\$($_.Name)" }) } catch {}
+  $ips = @()
+  try { $ips = @(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { $_.IPAddress }) } catch {}
+  $telas = $null
+  try {
+    $lay = Read-JsonFile $LayoutFile
+    if ($lay) { $telas = @{ gerado = [string]$lay.gerado; telas = @($lay.telas | ForEach-Object { "$($_.w)x$($_.h)" }); paineis = @($lay.tiles).Count } }
+  } catch {}
+  $auto = $null
+  try {
+    $wl = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction Stop
+    if ([string]$wl.AutoAdminLogon -eq '1' -and $wl.DefaultUserName) { $auto = "$($wl.DefaultDomainName)\$($wl.DefaultUserName)" }
+  } catch {}
+  $tarefa = $null
+  try { $tarefa = (Get-ScheduledTask -TaskName $WallTask -ErrorAction Stop).Principal.UserId } catch {}
+  return @{ pc = $env:COMPUTERNAME; ips = $ips; chrome = (Find-Chrome); logado = $logado; usuarios = $locais
+            telas = $telas; esperado = $PanelCount; autoLogon = $auto; tarefaParede = $tarefa; versao = $Version }
+}
+
+function Initialize-ScryWin {
+  if ('ScryWin' -as [type]) { return }
+  Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class ScryWin {
+  [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  static extern bool LogonUser(string user, string domain, string pass, int type, int provider, out IntPtr token);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  // 0 = senha confere; senao, o codigo de erro do Windows
+  public static int CheckLogon(string user, string domain, string pass) {
+    IntPtr t;
+    if (LogonUser(user, domain, pass, 2, 0, out t)) { CloseHandle(t); return 0; }
+    return Marshal.GetLastWin32Error();
+  }
+  [StructLayout(LayoutKind.Sequential)] struct LSA_UNICODE_STRING { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+  [StructLayout(LayoutKind.Sequential)] struct LSA_OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public int Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+  [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref LSA_OBJECT_ATTRIBUTES attr, int access, out IntPtr handle);
+  [DllImport("advapi32.dll")] static extern uint LsaStorePrivateData(IntPtr handle, ref LSA_UNICODE_STRING key, ref LSA_UNICODE_STRING data);
+  [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr handle);
+  [DllImport("advapi32.dll")] static extern int LsaNtStatusToWinError(uint status);
+  static LSA_UNICODE_STRING Str(string s) {
+    LSA_UNICODE_STRING u = new LSA_UNICODE_STRING();
+    u.Buffer = Marshal.StringToHGlobalUni(s); u.Length = (ushort)(s.Length * 2); u.MaximumLength = (ushort)(s.Length * 2 + 2);
+    return u;
+  }
+  // Grava um segredo LSA: o mesmo lugar onde o Autologon da Microsoft guarda a senha do logon automatico
+  public static int StoreSecret(string key, string value) {
+    LSA_OBJECT_ATTRIBUTES a = new LSA_OBJECT_ATTRIBUTES(); a.Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES));
+    IntPtr h; uint st = LsaOpenPolicy(IntPtr.Zero, ref a, 0x000F0FFF, out h);
+    if (st != 0) return LsaNtStatusToWinError(st);
+    LSA_UNICODE_STRING k = Str(key), d = Str(value);
+    try { st = LsaStorePrivateData(h, ref k, ref d); return st == 0 ? 0 : LsaNtStatusToWinError(st); }
+    finally { Marshal.FreeHGlobal(k.Buffer); Marshal.FreeHGlobal(d.Buffer); LsaClose(h); }
+  }
+}
+"@
+}
+
+# Tarefa da parede: mesma definicao do Install-NocManager.ps1 (Start-Wall.ps1 no logon e a cada 5 min, sem janela)
+function Register-WallTask([string]$WallUser) {
+  $startWall = Join-Path $Root 'Start-Wall.ps1'
+  $vbs = Join-Path $Root 'run-hidden.vbs'
+  $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$startWall"""
+  Set-Content -Path $vbs -Encoding ASCII -Value ("CreateObject(""WScript.Shell"").Run ""{0}"", 0, False" -f ($cmd -replace '"', '""'))
+  $aWall  = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$vbs`""
+  $tLogon = New-ScheduledTaskTrigger -AtLogOn -User $WallUser
+  $tRep   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+  $pWall  = New-ScheduledTaskPrincipal -UserId $WallUser -LogonType Interactive -RunLevel Limited
+  $sWall  = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+  Register-ScheduledTask -TaskName $WallTask -Action $aWall -Trigger @($tLogon, $tRep) -Principal $pWall -Settings $sWall -Force | Out-Null
+}
+
+function Set-AutoLogon([string]$WallUser, [string]$Senha) {
+  Initialize-ScryWin
+  $dom, $usr = $WallUser -split '\\', 2
+  $r = [ScryWin]::StoreSecret('DefaultPassword', $Senha)
+  if ($r -ne 0) { throw "Nao consegui gravar a senha do logon automatico (erro $r do Windows)." }
+  $wl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+  Set-ItemProperty -Path $wl -Name AutoAdminLogon -Value '1' -Type String
+  Set-ItemProperty -Path $wl -Name DefaultUserName -Value $usr -Type String
+  Set-ItemProperty -Path $wl -Name DefaultDomainName -Value $dom -Type String
+  # a senha nunca fica em texto puro no registro: so no segredo LSA
+  Remove-ItemProperty -Path $wl -Name DefaultPassword -ErrorAction SilentlyContinue
+  Remove-ItemProperty -Path $wl -Name AutoLogonCount -ErrorAction SilentlyContinue
+}
+
+function Register-Fail([string]$Ip) {
+  $f = $Fails[$Ip]
+  if (-not $f -or $f.last -lt (Get-Date).AddMinutes(-15)) { $f = @{ count = 0; until = [datetime]::MinValue; last = Get-Date } }
+  $f.count++; $f.last = Get-Date
+  if ($f.count -ge 5) { $f.until = (Get-Date).AddMinutes(5); $f.count = 0 }
+  $Fails[$Ip] = $f
+  Start-Sleep -Milliseconds 700
+}
+
+function Invoke-SetupRoute($Ctx, [string]$path, [string]$method, [string]$ip) {
+  $req = $Ctx.Request
+  if ($method -eq 'GET' -and ($path -eq '' -or $path -eq '/index.html' -or $path -eq '/setup.html')) {
+    Send-Bytes $Ctx 200 ([IO.File]::ReadAllBytes((Join-Path $WwwDir 'setup.html'))) 'text/html; charset=utf-8'; return
+  }
+  if ($path -eq '/api/versao' -and $method -eq 'GET') { Send-Json $Ctx 200 @{ versao = $Version; configuracao = $true }; return }
+  if ($path -notlike '/api/setup/*') { Send-Json $Ctx 409 @{ erro = 'Configuracao inicial pendente. Abra a pagina inicial do Scry.'; setup = $true }; return }
+  if ($method -ne 'GET' -and $req.Headers['X-NOC'] -ne '1') { Send-Json $Ctx 403 @{ erro = 'Requisicao recusada.' }; return }
+
+  $c = $req.Cookies['scry_setup']
+  $autorizado = [bool]($c -and $SetupTokens[$c.Value] -and $SetupTokens[$c.Value] -gt (Get-Date))
+
+  if ($path -eq '/api/setup/estado' -and $method -eq 'GET') {
+    Send-Json $Ctx 200 @{ pendente = $true; autorizado = $autorizado; pc = $env:COMPUTERNAME; versao = $Version }; return
+  }
+  if ($path -eq '/api/setup/codigo' -and $method -eq 'POST') {
+    $f = $Fails[$ip]
+    if ($f -and $f.until -gt (Get-Date)) { Send-Json $Ctx 429 @{ erro = 'Muitas tentativas. Aguarde alguns minutos.' }; return }
+    $b = Read-Body $Ctx
+    $st = $null; try { $st = Read-JsonFile $SetupFile } catch {}
+    $ok = $false
+    if ($st -and $st.hash -and ([datetime]$st.expira) -gt (Get-Date)) { $ok = Test-PasswordHash (Format-SetupCode ([string]$b.codigo)) ([string]$st.hash) }
+    if (-not $ok) {
+      Write-Audit 'assistente' $ip 'SETUP_CODIGO_INVALIDO' ''
+      Register-Fail $ip
+      Send-Json $Ctx 401 @{ erro = 'Codigo invalido ou vencido. Rode o comando de instalacao de novo para gerar outro.' }; return
+    }
+    $Fails.Remove($ip)
+    $t = New-Token; $SetupTokens[$t] = (Get-Date).AddHours(2)
+    $Ctx.Response.Headers.Add('Set-Cookie', "scry_setup=$t; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=7200")
+    Write-Audit 'assistente' $ip 'SETUP_CODIGO_OK' ''
+    Send-Json $Ctx 200 @{ ok = $true }; return
+  }
+  if (-not $autorizado) { Send-Json $Ctx 401 @{ erro = 'Informe o codigo de instalacao.'; codigo = $true }; return }
+
+  if ($path -eq '/api/setup/info' -and $method -eq 'GET') { Send-Json $Ctx 200 (Get-SetupInfo); return }
+
+  if ($path -eq '/api/setup/concluir' -and $method -eq 'POST') {
+    $b = Read-Body $Ctx
+    $adm = ([string]$b.admin.usuario).Trim()
+    if ($adm -notmatch '^[A-Za-z0-9._-]{3,32}$') { Send-Json $Ctx 400 @{ erro = 'Usuario do Scry invalido (3 a 32: letras, numeros, . _ -).' }; return }
+    $err = Test-NewPassword ([string]$b.admin.senha); if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
+    $wall = ([string]$b.parede.usuario).Trim()
+    if (-not $wall) { Send-Json $Ctx 400 @{ erro = 'Informe o usuario do Windows que fica logado na parede.' }; return }
+    if ($wall -notlike '*\*') { $wall = "$env:COMPUTERNAME\$wall" }
+    try { $null = (New-Object Security.Principal.NTAccount($wall)).Translate([Security.Principal.SecurityIdentifier]) }
+    catch { Send-Json $Ctx 400 @{ erro = "Usuario do Windows nao encontrado: $wall" }; return }
+    $auto = [bool]$b.autoLogon.ativar
+    if ($auto) {
+      Initialize-ScryWin
+      $dom, $usr = $wall -split '\\', 2
+      $r = [ScryWin]::CheckLogon($usr, $dom, [string]$b.autoLogon.senha)
+      if ($r -ne 0) {
+        Write-Audit 'assistente' $ip 'SETUP_SENHA_PAREDE_INVALIDA' "usuario=$wall erro=$r"
+        Send-Json $Ctx 400 @{ erro = "A senha do usuario $wall nao confere (erro $r do Windows)." }; return
+      }
+    }
+    # parede e logon automatico antes do admin: se algo falhar, o assistente continua disponivel
+    try { Register-WallTask $wall } catch { Send-Json $Ctx 500 @{ erro = "Nao consegui criar a tarefa da parede: $($_.Exception.Message)" }; return }
+    if ($auto) { try { Set-AutoLogon $wall ([string]$b.autoLogon.senha) } catch { Send-Json $Ctx 500 @{ erro = $_.Exception.Message }; return } }
+    # admin: a partir daqui o Scry sai do modo de configuracao
+    $users = Get-Users
+    $users.usuarios = @($users.usuarios | Where-Object { $_.usuario -ne $adm })
+    $users.usuarios += [pscustomobject]@{
+      usuario = $adm; nome = "Administrador"; papel = "admin"; ativo = $true
+      hash = (New-PasswordHash ([string]$b.admin.senha)); criado = (Get-Date -Format s)
+    }
+    Save-Users $users
+    Remove-Item -LiteralPath $SetupFile -Force -ErrorAction SilentlyContinue
+    $SetupTokens.Clear()
+    $script:SetupPending = $false
+    $Ctx.Response.Headers.Add('Set-Cookie', 'scry_setup=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0')
+    Write-Audit 'assistente' $ip 'SETUP_CONCLUIDO' "admin=$adm parede=$wall autoLogon=$auto"
+    # se o usuario da parede ja estiver logado, as janelas abrem agora
+    & schtasks.exe /Run /TN $WallTask 2>&1 | Out-Null
+    $reiniciar = [bool]$b.reiniciar
+    if ($reiniciar) { Start-Process -FilePath 'shutdown.exe' -ArgumentList '/r /t 20 /c "Scry: reiniciando para concluir a configuracao"' -WindowStyle Hidden }
+    Send-Json $Ctx 200 @{ ok = $true; admin = $adm; parede = $wall; autoLogon = $auto; reiniciando = $reiniciar }; return
+  }
+  Send-Json $Ctx 404 @{ erro = 'Rota inexistente.' }
+}
+
 function Invoke-Route($Ctx) {
   $req    = $Ctx.Request
   $path   = $req.Url.AbsolutePath.TrimEnd('/')
@@ -864,6 +1081,12 @@ function Invoke-Route($Ctx) {
     $Ctx.Response.StatusCode = 301
     $Ctx.Response.RedirectLocation = $base + $req.Url.PathAndQuery
     return
+  }
+
+  # ---- sem nenhum usuario: assistente de configuracao inicial
+  if ($script:SetupPending) {
+    if (-not (Test-SetupPending)) { $script:SetupPending = $false }      # admin criado por outro caminho (-NovoAdmin)
+    else { Invoke-SetupRoute $Ctx $path $method $ip; return }
   }
 
   # ---- arquivos estaticos (so a pagina)
@@ -1321,9 +1544,8 @@ function Invoke-Route($Ctx) {
 }
 
 # ---------------------------------------------------------------- loop principal
-if (-not (Test-Path $UsersFile) -or -not @((Get-Users).usuarios).Count) {
-  throw "Nenhum usuario cadastrado. Rode: NocManager.ps1 -NovoAdmin admin"
-}
+# sem usuario cadastrado: sobe em modo de configuracao (assistente web com codigo de uso unico)
+$script:SetupPending = Test-SetupPending
 
 $DiagFile = Join-Path $ManagerDir 'diag.log'
 function Write-Diag([string]$Text) {
@@ -1374,6 +1596,7 @@ try {
 Start-Worker
 Write-Host "NOC Manager ouvindo em $Prefix (Ctrl+C para sair)"
 Write-Audit "sistema" "local" "SERVIDOR_INICIADO" "$Prefix v$Version"
+if ($script:SetupPending) { Write-Diag "MODO_CONFIGURACAO: nenhum usuario; assistente web ativo (codigo: NocManager.ps1 -NovoCodigo)" }
 Write-Diag "SERVIDOR_INICIADO v$Version mem=$(Get-MemMB)MB prefixos=$($listener.Prefixes -join ', ') oficial=$PublicUrl redes=$AllowFrom"
 
 try {
