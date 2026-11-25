@@ -29,7 +29,7 @@ C:\NOC\
 
 > Passo a passo completo para um PC novo (pré-requisitos, credencial do Grafana, DNS e certificado): **[INSTALAR.md](INSTALAR.md)**.
 >
-> **Mais simples ainda:** como Administrador (cmd, PowerShell ou SSH), `powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex"`. Ele instala sem perguntas e mostra um endereço e um código; o resto (admin, usuário da parede, logon automático) é feito no navegador. Veja o [README](../README.md#instalação-deploy).
+> **Mais simples ainda:** como Administrador (cmd ou SSH), `curl.exe -fsSL https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | powershell -NoProfile -ExecutionPolicy Bypass -Command -`. Ele instala sem perguntas e mostra um endereço e um código; o resto (admin, usuário da parede, logon automático) é feito no navegador. Veja o [README](../README.md#instalar).
 >
 > **Mais simples:** extraia o pacote em qualquer pasta e dê dois cliques em `INSTALAR.cmd`. Ele copia para `C:\NOC`, pergunta o necessário e roda o instalador abaixo.
 
