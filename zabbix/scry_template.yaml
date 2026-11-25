@@ -1,0 +1,398 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: ff235009d82b498fa08147781f920a1c
+      name: Templates/Applications
+  templates:
+    - uuid: caaece6d8af344f5815f6c7b49e9d212
+      template: 'Scry Video Wall'
+      name: 'Scry Video Wall'
+      description: |
+        Monitora o Scry (gerenciador do video wall do NOC) pela rota /api/saude.
+        A rota nao exige login, mas so responde para a rede interna (-AllowFrom do Scry).
+        Macro {$SCRY.URL}: endereco do Scry (padrao https://scry.armazem.cloud).
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 1b46e9bf862945c091db883bbf72ab43
+          name: 'Scry: saude (JSON)'
+          type: HTTP_AGENT
+          key: scry.saude
+          delay: 1m
+          history: 1d
+          value_type: TEXT
+          trends: '0'
+          description: 'Resposta completa de {$SCRY.URL}/api/saude.'
+          timeout: 10s
+          url: '{$SCRY.URL}/api/saude'
+          tags:
+            - tag: component
+              value: scry
+        - uuid: c8b3de6b7350426fbb8a7361cbc3ca66
+          name: 'Scry: status (0 ok, 1 alerta, 2 critico)'
+          type: DEPENDENT
+          key: scry.codigo
+          delay: '0'
+          valuemap:
+            name: 'Scry status'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.codigo
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: d24dd28b8bf1431899bfdfa9cfab62de
+              expression: 'nodata(/Scry Video Wall/scry.codigo,5m)=1'
+              name: 'Scry: sem resposta ha 5 minutos'
+              priority: HIGH
+              description: 'O Zabbix nao consegue ler {$SCRY.URL}/api/saude: gerenciador parado, PC desligado ou rede.'
+        - uuid: 2af0f947aa974169bc3c303349e1ccfc
+          name: 'Scry: resumo'
+          type: DEPENDENT
+          key: scry.resumo
+          delay: '0'
+          history: 7d
+          value_type: CHAR
+          trends: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.resumo
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: 953d90edeece4192b8d78e781c9df672
+          name: 'Scry: versao'
+          type: DEPENDENT
+          key: scry.versao
+          delay: '0'
+          history: 30d
+          value_type: CHAR
+          trends: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.versao
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 89a32fa520ea462fa99e4a06f83cc3e5
+              expression: 'change(/Scry Video Wall/scry.versao)=1'
+              name: 'Scry: versao mudou para {ITEM.LASTVALUE}'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 25413949f1bf46839dcbdaae79da0452
+          name: 'Scry: janelas esperadas'
+          type: DEPENDENT
+          key: scry.janelas
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.janelas
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: cd601b8f03924d2fae525f4db5aa9183
+          name: 'Scry: janelas online'
+          type: DEPENDENT
+          key: scry.online
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.online
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: 460e5ad7d101431f879c4013f09cd11e
+          name: 'Scry: paineis fechados'
+          type: DEPENDENT
+          key: scry.paineis.offline
+          delay: '0'
+          description: 'Paineis com a janela fechada ha mais de 2 minutos (fora de pausa e de mosaico).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.offline.length()
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 13dd4df4c6604420b25c7f22519f53ec
+              expression: 'min(/Scry Video Wall/scry.paineis.offline,5m)>0'
+              name: 'Scry: {ITEM.LASTVALUE} painel(is) fechado(s) na parede'
+              priority: AVERAGE
+              description: 'A auto-correcao do Scry ja tentou reabrir. Veja o resumo e o diag.log.'
+        - uuid: 8b625ed23bf9439f91c953c94a0dc9c5
+          name: 'Scry: paineis sem resposta'
+          type: DEPENDENT
+          key: scry.paineis.naoresponde
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.naoResponde.length()
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 1e141d9e5c4d46ffa689b31b9e81634c
+              expression: 'min(/Scry Video Wall/scry.paineis.naoresponde,10m)>0'
+              name: 'Scry: painel sem resposta ha 10 minutos'
+              priority: AVERAGE
+        - uuid: be9faca8c0d74b40a48805462889dc20
+          name: 'Scry: paineis na tela de login do Grafana'
+          type: DEPENDENT
+          key: scry.paineis.login
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.login.length()
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 1fe6185212f345de8bda4706b8038b8a
+              expression: 'min(/Scry Video Wall/scry.paineis.login,10m)>0'
+              name: 'Scry: painel parado na tela de login do Grafana'
+              priority: AVERAGE
+              description: 'O login automatico nao resolveu: confira a senha do usuario da parede no Grafana e o C:\NOC\grafana.cred.'
+        - uuid: a224b4d161ec491db0398ee6cd65582c
+          name: 'Scry: paineis com imagem congelada'
+          type: DEPENDENT
+          key: scry.paineis.travado
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.travado.length()
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 25599981a6f3409687ea6fd44135f9ac
+              expression: 'min(/Scry Video Wall/scry.paineis.travado,30m)>0'
+              name: 'Scry: painel com imagem congelada ha 30 minutos'
+              priority: WARNING
+        - uuid: df41449d4f444e77b2a10dedc59a112c
+          name: 'Scry: paineis com erro de rede'
+          type: DEPENDENT
+          key: scry.paineis.erro
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.erro.length()
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 79fa1558c2474c48a38e8358c18dcc07
+              expression: 'min(/Scry Video Wall/scry.paineis.erro,10m)>0'
+              name: 'Scry: painel com erro de rede ha 10 minutos'
+              priority: WARNING
+        - uuid: 83c30bcea1c845f6ade02ba9a70c5c86
+          name: 'Scry: parede pausada'
+          type: DEPENDENT
+          key: scry.pausada
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.parede.pausada
+            - type: BOOL_TO_DECIMAL
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 235296893cf14d97ac093c8744d5b298
+              expression: 'min(/Scry Video Wall/scry.pausada,4h)=1'
+              name: 'Scry: parede pausada ha mais de 4 horas'
+              priority: INFO
+        - uuid: 69c2674bf36e407ca233209dcccfe330
+          name: 'Scry: RAM do PC da parede'
+          type: DEPENDENT
+          key: scry.pc.ram
+          delay: '0'
+          units: '%'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.pc.ramPct
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: 9d095a117cf849e78aeb8ed4cd932022
+              expression: 'min(/Scry Video Wall/scry.pc.ram,10m)>90'
+              name: 'Scry: RAM do PC da parede acima de 90%'
+              priority: HIGH
+              description: 'Foi a causa das quedas do C-Control. A reabertura diaria do Scry ajuda; veja a memoria do Chrome.'
+        - uuid: 0f7393b92c7b4757b29d2b7920aba6ee
+          name: 'Scry: CPU do PC da parede'
+          type: DEPENDENT
+          key: scry.pc.cpu
+          delay: '0'
+          units: '%'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.pc.cpu
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: f276fd3e9116413686cccfedc8bf29af
+          name: 'Scry: memoria do Chrome (paineis)'
+          type: DEPENDENT
+          key: scry.pc.chrome
+          delay: '0'
+          units: B
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.pc.chromeMB
+            - type: MULTIPLIER
+              parameters:
+                - '1048576'
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: 935c7cd59cc840d784f7e923e8f23961
+          name: 'Scry: memoria do gerenciador'
+          type: DEPENDENT
+          key: scry.gerenciador.mem
+          delay: '0'
+          units: B
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.gerenciador.memMB
+            - type: MULTIPLIER
+              parameters:
+                - '1048576'
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+        - uuid: 02c4189fd6144a459e4a5dfe9d51e636
+          name: 'Scry: gerenciador ligado ha'
+          type: DEPENDENT
+          key: scry.gerenciador.uptime
+          delay: '0'
+          units: uptime
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.gerenciador.uptimeMin
+            - type: MULTIPLIER
+              parameters:
+                - '60'
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: a307af585896435ca52916841ee29020
+              expression: 'last(/Scry Video Wall/scry.gerenciador.uptime)<600'
+              name: 'Scry: gerenciador reiniciou'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 27f000ddfe3e4f6ca2e1d694d1b30e20
+          name: 'Scry: reinicios por memoria (24 h)'
+          type: DEPENDENT
+          key: scry.gerenciador.reinicios
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.gerenciador.reiniciosMemoria24h
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: d62585dc4e7f4ec987660b27aa83b15f
+              expression: 'last(/Scry Video Wall/scry.gerenciador.reinicios)>=3'
+              name: 'Scry: gerenciador reiniciou por memoria 3+ vezes em 24 h'
+              priority: WARNING
+        - uuid: 62217786f3894d08b269d4c47964d4cf
+          name: 'Scry: certificado - dias para vencer'
+          type: DEPENDENT
+          key: scry.cert.dias
+          delay: '0'
+          units: d
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.certificado.dias
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: scry.saude
+          tags:
+            - tag: component
+              value: scry
+          triggers:
+            - uuid: fb16ad86d5c84042b664262600f7f187
+              expression: 'last(/Scry Video Wall/scry.cert.dias)<7'
+              name: 'Scry: certificado vence em menos de 7 dias'
+              priority: HIGH
+            - uuid: f060cbd58ca446f882bd413f9ee3ad3a
+              expression: 'last(/Scry Video Wall/scry.cert.dias)<30'
+              name: 'Scry: certificado vence em menos de 30 dias'
+              priority: WARNING
+              dependencies:
+                - name: 'Scry: certificado vence em menos de 7 dias'
+                  expression: 'last(/Scry Video Wall/scry.cert.dias)<7'
+      macros:
+        - macro: '{$SCRY.URL}'
+          value: 'https://scry.armazem.cloud'
+          description: 'Endereco do Scry (sem barra no fim)'
+      valuemaps:
+        - uuid: bb5803fed3fa4114b5145253477f0e03
+          name: 'Scry status'
+          mappings:
+            - value: '0'
+              newvalue: ok
+            - value: '1'
+              newvalue: alerta
+            - value: '2'
+              newvalue: critico

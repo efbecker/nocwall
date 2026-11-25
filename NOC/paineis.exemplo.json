@@ -1,0 +1,133 @@
+{
+  "paineis": [
+    {
+      "n": 0,
+      "nome": "LINK - BRUSQUE",
+      "url": "https://grafana.armazem.cloud/d/wan-noc-brq-fullwidth-v1/wan-7c-noc-full-width-brusque?orgId=1&from=now-12h&to=now&timezone=browser&refresh=30s&kiosk",
+      "zoom": 0.67
+    },
+    {
+      "n": 1,
+      "nome": "LINK - JOINVILLE",
+      "url": "https://grafana.armazem.cloud/d/wan-noc-jlle-fullwidth-v1/wan-7c-noc-full-width-joinville?orgId=1&from=now-12h&to=now&timezone=browser&refresh=30s&kiosk",
+      "zoom": 0.67
+    },
+    {
+      "n": 2,
+      "nome": "CLUSTER BRQ",
+      "url": "https://grafana.armazem.cloud/d/ADC_M1000E_BQE_NOC_TV_1080P_V2/adc-7c-cmc7c-dell-m1000e-brusque-v2?kiosk=&autofitpanels=true&orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=30s",
+      "zoom": 0.67
+    },
+    {
+      "n": 3,
+      "nome": "DATACLUSTER",
+      "url": "https://grafana.armazem.cloud/d/ADC_UNITY_JLLE_NOC_TV_1080P_V1/adc-7c-storage7c-jlle-unity1-unity-880-joinville?kiosk=&orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=30s",
+      "zoom": 0.67
+    },
+    {
+      "n": 4,
+      "nome": "NOC-BRUSQUE",
+      "url": "https://grafana.armazem.cloud/d/noc-brusque-fullwidth-v1/noc-7c-brusque-chamados-ambiente-e-problemas?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s&kiosk",
+      "zoom": 0.67
+    },
+    {
+      "n": 5,
+      "nome": "MON - CLIENTES",
+      "url": "https://grafana.armazem.cloud/d/defmjob1tthq8aafsfwfwsfsfsBRQ-CLI/armazem-cloud-7c-clientes?orgId=1&from=now-12h&to=now&timezone=browser&refresh=auto&kiosk",
+      "zoom": 0.67
+    },
+    {
+      "n": 6,
+      "nome": "EXTENSAO MONITORAMENTO",
+      "url": "https://grafana.armazem.cloud/d/gdgdgdgdg353535fhhfda24244/armazem-cloud-7c-extensao-monitoramento?orgId=1&from=now-3h&to=now&timezone=browser&refresh=10s&kiosk",
+      "zoom": 0.67
+    },
+    {
+      "n": 7,
+      "nome": "GERADORES E ENERGIA",
+      "url": "https://grafana.armazem.cloud/d/ADC_GERADORES_BRQ_NOC_TV_1080P_V3/adc-7c-geradores7c-dse855-brusque-v3?kiosk=&orgId=1&from=now-24h&to=now&timezone=America%2FSao_Paulo&refresh=30s",
+      "zoom": 0.67
+    },
+    {
+      "n": 8,
+      "nome": "VEEAM e ZIMBRA",
+      "url": "https://grafana.armazem.cloud/d/ZIMBRA-NOC-SHOWCASE-TV-V0003/a3ff79c?kiosk=&orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s",
+      "zoom": 0.67
+    },
+    {
+      "n": 9,
+      "nome": "GO GLOBAL",
+      "url": "https://grafana.armazem.cloud/d/dad12341234asfdadaVERDE/noc-servidor-web-apache-vm24-platinum-tlp-verde?orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=10s&kiosk",
+      "zoom": 0.67
+    }
+  ],
+  "cenarios": [
+    {
+      "id": "padrao",
+      "nome": "Padrao",
+      "paineis": [
+        {
+          "n": 0,
+          "nome": "LINK - BRUSQUE",
+          "url": "https://grafana.armazem.cloud/d/wan-noc-brq-fullwidth-v1/wan-7c-noc-full-width-brusque?orgId=1&from=now-12h&to=now&timezone=browser&refresh=30s&kiosk",
+          "zoom": 0.67
+        },
+        {
+          "n": 1,
+          "nome": "LINK - JOINVILLE",
+          "url": "https://grafana.armazem.cloud/d/wan-noc-jlle-fullwidth-v1/wan-7c-noc-full-width-joinville?orgId=1&from=now-12h&to=now&timezone=browser&refresh=30s&kiosk",
+          "zoom": 0.67
+        },
+        {
+          "n": 2,
+          "nome": "CLUSTER BRQ",
+          "url": "https://grafana.armazem.cloud/d/ADC_M1000E_BQE_NOC_TV_1080P_V2/adc-7c-cmc7c-dell-m1000e-brusque-v2?kiosk=&autofitpanels=true&orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=30s",
+          "zoom": 0.67
+        },
+        {
+          "n": 3,
+          "nome": "DATACLUSTER",
+          "url": "https://grafana.armazem.cloud/d/ADC_UNITY_JLLE_NOC_TV_1080P_V1/adc-7c-storage7c-jlle-unity1-unity-880-joinville?kiosk=&orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=30s",
+          "zoom": 0.67
+        },
+        {
+          "n": 4,
+          "nome": "NOC-BRUSQUE",
+          "url": "https://grafana.armazem.cloud/d/noc-brusque-fullwidth-v1/noc-7c-brusque-chamados-ambiente-e-problemas?orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s&kiosk",
+          "zoom": 0.67
+        },
+        {
+          "n": 5,
+          "nome": "MON - CLIENTES",
+          "url": "https://grafana.armazem.cloud/d/defmjob1tthq8aafsfwfwsfsfsBRQ-CLI/armazem-cloud-7c-clientes?orgId=1&from=now-12h&to=now&timezone=browser&refresh=auto&kiosk",
+          "zoom": 0.67
+        },
+        {
+          "n": 6,
+          "nome": "EXTENSAO MONITORAMENTO",
+          "url": "https://grafana.armazem.cloud/d/gdgdgdgdg353535fhhfda24244/armazem-cloud-7c-extensao-monitoramento?orgId=1&from=now-3h&to=now&timezone=browser&refresh=10s&kiosk",
+          "zoom": 0.67
+        },
+        {
+          "n": 7,
+          "nome": "GERADORES E ENERGIA",
+          "url": "https://grafana.armazem.cloud/d/ADC_GERADORES_BRQ_NOC_TV_1080P_V3/adc-7c-geradores7c-dse855-brusque-v3?kiosk=&orgId=1&from=now-24h&to=now&timezone=America%2FSao_Paulo&refresh=30s",
+          "zoom": 0.67
+        },
+        {
+          "n": 8,
+          "nome": "VEEAM e ZIMBRA",
+          "url": "https://grafana.armazem.cloud/d/ZIMBRA-NOC-SHOWCASE-TV-V0003/a3ff79c?kiosk=&orgId=1&from=now-6h&to=now&timezone=browser&refresh=30s",
+          "zoom": 0.67
+        },
+        {
+          "n": 9,
+          "nome": "GO GLOBAL",
+          "url": "https://grafana.armazem.cloud/d/dad12341234asfdadaVERDE/noc-servidor-web-apache-vm24-platinum-tlp-verde?orgId=1&from=now-24h&to=now&timezone=browser&var-DS_ZABBIX=aefmhwmzczf9cc&refresh=10s&kiosk",
+          "zoom": 0.67
+        }
+      ]
+    }
+  ],
+  "cenarioAtivo": "padrao"
+}

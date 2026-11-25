@@ -1,0 +1,14 @@
+# dados de producao - nunca versionar
+NOC/Manager/users.json
+NOC/Manager/audit.log
+NOC/Manager/diag.log*
+NOC/grafana.cred
+NOC/profiles/
+NOC/run-hidden.vbs
+NOC/pausado.json
+NOC/layout.json
+NOC/backups/
+*.bak*
+*.tmp
+dist/
+NOC/paineis.json

@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scry · Video Wall</title>
+<meta name="description" content="Scry · Veja o topo da operação">
+<meta name="theme-color" content="#0a1216">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'6%203%2052%2058'%20role%3D'img'%20aria-label%3D'Scry'%3E%20%3Cdefs%3E%20%3ClinearGradient%20id%3D'scry-f'%20x1%3D'0'%20y1%3D'0'%20x2%3D'1'%20y2%3D'1'%3E%20%3Cstop%20offset%3D'0'%20stop-color%3D'%233fd8e6'%2F%3E%20%3Cstop%20offset%3D'1'%20stop-color%3D'%238b7cf6'%2F%3E%20%3C%2FlinearGradient%3E%20%3C%2Fdefs%3E%20%3Crect%20x%3D'15'%20y%3D'16'%20width%3D'34'%20height%3D'42'%20rx%3D'5'%20fill%3D'none'%20stroke%3D'%238b7cf6'%20stroke-opacity%3D'.4'%20stroke-width%3D'2.5'%20transform%3D'rotate(-11%2032%2037)'%2F%3E%20%3Crect%20x%3D'15'%20y%3D'16'%20width%3D'34'%20height%3D'42'%20rx%3D'5'%20fill%3D'none'%20stroke%3D'%233fd8e6'%20stroke-opacity%3D'.5'%20stroke-width%3D'2.5'%20transform%3D'rotate(7%2032%2037)'%2F%3E%20%3Crect%20x%3D'15'%20y%3D'6'%20width%3D'34'%20height%3D'44'%20rx%3D'5'%20fill%3D'%230f1d25'%20stroke%3D'url(%23scry-f)'%20stroke-width%3D'3'%2F%3E%20%3Cpath%20d%3D'M20.5%2028%20Q32%2016.5%2043.5%2028%20Q32%2039.5%2020.5%2028%20Z'%20fill%3D'none'%20stroke%3D'url(%23scry-f)'%20stroke-width%3D'2.6'%20stroke-linejoin%3D'round'%2F%3E%20%3Ccircle%20cx%3D'32'%20cy%3D'28'%20r%3D'5.2'%20fill%3D'url(%23scry-f)'%2F%3E%20%3Ccircle%20cx%3D'30.2'%20cy%3D'26.2'%20r%3D'1.6'%20fill%3D'%23ffffff'%20fill-opacity%3D'.92'%2F%3E%20%3C%2Fsvg%3E">
+<style>
+  :root {
+    --bg: #0a1216; --panel: #0f1d25; --panel2: #142833; --panel3: #1a3442; --line: #1f3a48;
+    --text: #d8e6ec; --muted: #7f98a4; --accent: #3fc9d8; --accent2: #1d8799;
+    --cyan: #3fd8e6; --violet: #8b7cf6;   /* marca Scry: visão (ciano) → arcano (violeta) */
+    --danger: #e5484d; --warn: #f5a524; --ok: #30a46c; --off: #5b6b73;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  button.primary:hover { background: var(--accent); }
+  button.danger { border-color: #5a2427; color: #ff9b9e; }
+  button.danger:hover { border-color: var(--danger); }
+  button.warn { border-color: #6b4c12; color: #ffc766; }
+  button.small { padding: 3px 8px; font-size: 12px; }
+  button.ghost { background: transparent; border-color: transparent; }
+  button.ghost:hover { border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { background: #0b171d; border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 9px; width: 100%; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+
+  /* ---------- login ---------- */
+  #login { min-height: 100vh; display: grid; place-items: center; padding: 16px;
+    background: radial-gradient(900px 500px at 50% 0%, rgba(139,124,246,.16), transparent 70%),
+                radial-gradient(700px 400px at 50% 100%, rgba(63,216,230,.10), transparent 70%), var(--bg); }
+  #login form { width: min(360px, 100%); background: rgba(15,29,37,.92); border: 1px solid var(--line);
+    border-radius: 14px; padding: 30px 30px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+  .brandbox { text-align: center; margin-bottom: 18px; }
+  .brandbox .mark-xl { width: 76px; height: 84px; filter: drop-shadow(0 6px 18px rgba(139,124,246,.35)); }
+  .wordmark { font-size: 34px; font-weight: 700; letter-spacing: .5px; line-height: 1.1; margin-top: 6px;
+    background: linear-gradient(90deg, #e6f6f8, #c9c2ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .descriptor { font-size: 11px; font-weight: 600; letter-spacing: 3.2px; color: var(--muted); text-transform: uppercase; }
+  .slogan { margin-top: 12px; color: var(--text); font-size: 14px; }
+  .slogan b { background: linear-gradient(90deg, var(--cyan), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #login button { width: 100%; margin-top: 18px; padding: 9px; }
+  .err { color: #ff9b9e; min-height: 20px; margin-top: 10px; font-size: 13px; }
+  .ver { color: var(--muted); font-size: 12px; margin-top: 14px; text-align: center; }
+
+  /* ---------- topo ---------- */
+  header { display: flex; align-items: center; gap: 10px 14px; padding: 10px 18px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 9px; }
+  header h1 .mark-sm { width: 24px; height: 27px; }
+  header h1 .wm { font-weight: 700; background: linear-gradient(90deg, #e6f6f8, #c9c2ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header h1 .ds { color: var(--muted); font-weight: 400; }
+  .health { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .hc { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--panel2);
+    border: 1px solid var(--line); white-space: nowrap; }
+  .hc b { font-weight: 600; }
+  .hc.ok { border-color: #1d5a3c; } .hc.warn { border-color: #6b4c12; color: #ffc766; }
+  .hc.bad { border-color: #6a2326; color: #ff9b9e; }
+  .user { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .who { color: var(--muted); font-size: 13px; }
+
+  /* ---------- barra de controle ---------- */
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 18px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line); }
+  .bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip { border-radius: 99px; padding: 5px 14px; }
+  .chip.active { background: var(--accent2); border-color: var(--accent); color: #fff; }
+  .chip.active.mod { background: #4a3a12; border-color: var(--warn); color: #ffd58a; }
+  .spacer { flex: 1; }
+  .dd { position: relative; }
+  .dd > .menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 220px; z-index: 30;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .dd > .menu.left { left: 0; right: auto; }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px; }
+  .menu button:hover { background: var(--panel3); }
+
+  .pausebar { display: flex; align-items: center; gap: 12px; padding: 10px 18px; flex-wrap: wrap;
+    background: #3a1517; border-bottom: 1px solid #6a2326; color: #ffc9cb; }
+  .pausebar b { color: #fff; }
+
+  /* ---------- area principal ---------- */
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 16px 18px 10px; }
+  .main.nolib { grid-template-columns: minmax(0, 1fr); }
+  .main > * { min-width: 0; }
+
+  /* parede fiel: telas e blocos posicionados em % do tamanho real */
+  .canvas { position: relative; width: 100%; margin: 20px 0 24px; }
+  .screen { position: absolute; border: 2px solid #2a4654; border-radius: 6px; background: #071015; }
+  .screen .lbl.up { bottom: auto; top: -19px; }
+  .screen .lbl { position: absolute; left: 6px; bottom: -20px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .card { position: absolute; padding: 3px; }
+  .card .in { position: relative; width: 100%; height: 100%; border-radius: 4px; overflow: hidden;
+    background: #050c10; outline: 2px solid transparent; transition: outline-color .15s; }
+  .card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; padding: 6px; }
+  .card .top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 6px;
+    padding: 5px 7px 14px; background: linear-gradient(rgba(0,0,0,.78), rgba(0,0,0,0)); font-size: 12px; }
+  .card .num { font-weight: 700; color: #fff; background: linear-gradient(135deg, rgba(63,216,230,.9), rgba(139,124,246,.9)); border-radius: 4px; padding: 0 6px; }
+  .card .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #fff;
+    text-shadow: 0 1px 2px #000; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 1px 7px; border-radius: 99px;
+    background: rgba(0,0,0,.6); white-space: nowrap; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--off); display: inline-block; }
+  .s-ok i { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .s-load i { background: var(--warn); animation: pulse 1s infinite; }
+  .s-old i { background: var(--warn); }
+  .s-off i { background: var(--danger); }
+  .s-pause i { background: var(--off); }
+  .card.s-off .in { outline-color: rgba(229,72,77,.7); }
+  .card.s-load .in, .card.s-old .in { outline-color: rgba(245,165,36,.55); }
+  .card.s-pause img { filter: grayscale(1) brightness(.35); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .tag { font-size: 10px; padding: 0 5px; border-radius: 3px; background: #4a3a12; color: #ffd58a; }
+  .card .acts { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 4px; justify-content: center;
+    padding: 14px 6px 6px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.85)); opacity: 0; transition: opacity .15s; }
+  .card:hover .acts, .card:focus-within .acts { opacity: 1; }
+  .card .acts button, .card .acts a { font-size: 11px; padding: 2px 7px; background: rgba(20,40,51,.95); border: 1px solid var(--line);
+    border-radius: 5px; color: var(--text); text-decoration: none; cursor: pointer; }
+  .card .busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5,12,16,.62);
+    font-size: 13px; font-weight: 600; color: #fff; }
+  .card .busy span { display: inline-flex; gap: 8px; align-items: center; background: rgba(0,0,0,.6); padding: 5px 12px; border-radius: 99px; }
+  .spin { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.25); border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .card .busy.done span { background: rgba(48,164,108,.9); }
+  .card.drop .in { outline: 3px dashed var(--accent); }
+  .card[draggable="true"] { cursor: grab; }
+  .tag.area { background: rgba(139,124,246,.85); color: #fff; font-weight: 600; }
+  /* modo mosaico: clicar seleciona; a area resultante aparece tracejada */
+  .canvas.selmode .card { cursor: pointer; }
+  .canvas.selmode .card .acts { display: none; }
+  .canvas.selmode .card .in { outline: 2px dashed rgba(139,124,246,.35); }
+  .card.sel .in { outline: 3px solid var(--violet) !important; }
+  .card.sel .in::after { content: "✓"; position: absolute; right: 8px; bottom: 6px; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--violet); color: #fff; display: grid; place-items: center; font-weight: 700; }
+  .selbox { position: absolute; border: 2px dashed var(--cyan); border-radius: 6px; pointer-events: none; z-index: 5;
+    background: rgba(63,216,230,.06); }
+  .selbox.bad { border-color: var(--danger); background: rgba(229,72,77,.06); }
+  .selbar { display: flex; align-items: center; gap: 8px; padding: 10px 18px; flex-wrap: wrap;
+    background: #1c1838; border-bottom: 1px solid #3b3370; color: #ddd8ff; }
+  .selbar b { color: #fff; }
+  .selbar .msg { flex: 1; min-width: 200px; }
+  .selbar .msg.bad { color: #ffb3b5; }
+  .radio { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; color: var(--text); font-size: 13px; }
+  .radio input { width: auto; margin-top: 3px; }
+  .radio small { display: block; color: var(--muted); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 30px; color: var(--muted); font-size: 12px; }
+  .legend .pill { background: var(--panel2); }
+
+  /* ---------- biblioteca ---------- */
+  .lib { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column;
+    max-height: calc(100vh - 170px); position: sticky; top: 12px; }
+  .lib .hd { padding: 12px 12px 8px; border-bottom: 1px solid var(--line); }
+  .lib .hd h2 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; justify-content: space-between; }
+  .lib .list { overflow: auto; padding: 6px; flex: 1; }
+  .li { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; border: 1px solid transparent; cursor: grab; }
+  .li:hover { background: var(--panel2); border-color: var(--line); }
+  .li .grip { color: var(--muted); font-size: 12px; letter-spacing: -2px; }
+  .li .tx { flex: 1; min-width: 0; }
+  .li .tx b { display: block; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .li .tx small { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .li .ops { display: flex; gap: 2px; opacity: 0; }
+  .li:hover .ops, .li:focus-within .ops { opacity: 1; }
+  .li .ops button { padding: 2px 6px; font-size: 12px; }
+  .li.inuse .tx b::after { content: " · na parede"; color: var(--accent); font-weight: 400; font-size: 11px; }
+  .lib .ft { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+  footer { padding: 10px 18px 18px; color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* ---------- modais ---------- */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 40; padding: 16px; }
+  .modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    width: min(640px, 100%); max-height: 90vh; overflow: auto; padding: 20px 22px; }
+  .modal .box.wide { width: min(980px, 100%); }
+  .modal h2 { margin: 0 0 6px; font-size: 17px; }
+  .modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+  .warns { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .warns div { font-size: 12px; padding: 6px 9px; border-radius: 6px; background: #3b2e10; border: 1px solid #6b4c12; color: #ffd58a; }
+  .row4 { display: grid; grid-template-columns: 1.1fr 1.3fr .9fr 1.2fr auto; gap: 8px; align-items: end; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td input, td select { padding: 4px 6px; }
+  td.act { white-space: nowrap; }
+  pre.audit { background: #071015; border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+    font: 12px/1.5 Consolas, monospace; white-space: pre-wrap; max-height: 60vh; overflow: auto; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .chk { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--text); font-size: 13px; }
+  .chk input { width: auto; }
+  .pickgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
+  .pickgrid button { padding: 10px 4px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .pickgrid button b { display: block; font-size: 15px; color: var(--accent); }
+
+  #toast { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+  .t { display: flex; align-items: center; gap: 12px; background: var(--panel2); border: 1px solid var(--line);
+    border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 6px; max-width: 460px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  .t.e { border-left-color: var(--danger); }
+  .t span { flex: 1; }
+  .t button { flex: none; }
+
+  @media (max-width: 1100px) { .main { grid-template-columns: minmax(0, 1fr); } .lib { position: static; max-height: 420px; } }
+  /* celular: a parede vira lista de cartoes */
+  @media (min-width: 521px) and (max-width: 760px) { .canvas { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+  @media (max-width: 760px) {
+    header, .bar, .pausebar { padding-left: 12px; padding-right: 12px; }
+    .main { padding: 12px; }
+    .canvas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; height: auto !important; margin: 0 !important; aspect-ratio: auto !important; }
+    .screen { display: none; }
+    .card { position: relative !important; left: auto !important; top: auto !important; width: auto !important; height: auto !important;
+      aspect-ratio: 16 / 9; padding: 0; }
+    .card .acts { opacity: 1; }
+    .legend { margin-top: 12px; }
+    .row4 { grid-template-columns: 1fr; }
+    #toast { left: 12px; right: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<section id="login" class="hidden">
+  <form id="loginForm" autocomplete="on">
+    <div class="brandbox">
+      <svg class="mark-xl" viewBox="6 3 52 58" aria-hidden="true"><defs><linearGradient id="scry-g-login" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fd8e6"/><stop offset="1" stop-color="#8b7cf6"/></linearGradient></defs><rect x="15" y="16" width="34" height="42" rx="5" fill="none" stroke="#8b7cf6" stroke-opacity=".4" stroke-width="2.5" transform="rotate(-11 32 37)"/><rect x="15" y="16" width="34" height="42" rx="5" fill="none" stroke="#3fd8e6" stroke-opacity=".5" stroke-width="2.5" transform="rotate(7 32 37)"/><rect x="15" y="6" width="34" height="44" rx="5" fill="#0f1d25" stroke="url(#scry-g-login)" stroke-width="3"/><path d="M20.5 28 Q32 16.5 43.5 28 Q32 39.5 20.5 28 Z" fill="none" stroke="url(#scry-g-login)" stroke-width="2.6" stroke-linejoin="round"/><circle cx="32" cy="28" r="5.2" fill="url(#scry-g-login)"/><circle cx="30.2" cy="26.2" r="1.6" fill="#fff" fill-opacity=".92"/></svg>
+      <div class="wordmark">Scry</div>
+      <div class="descriptor">Video Wall</div>
+      <div class="slogan">Veja o <b>topo</b> da operação.</div>
+    </div>
+    <label for="lu">Usuário</label>
+    <input id="lu" name="username" autocomplete="username" required>
+    <label for="lp">Senha</label>
+    <input id="lp" name="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Entrar</button>
+    <div class="err" id="loginErr"></div>
+    <div class="ver" id="loginVer"></div>
+  </form>
+</section>
+
+<!-- ============ APP ============ -->
+<section id="app" class="hidden">
+  <header>
+    <h1 title="Scry · Veja o topo da operação"><svg class="mark-sm" viewBox="6 3 52 58" aria-hidden="true"><defs><linearGradient id="scry-g-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fd8e6"/><stop offset="1" stop-color="#8b7cf6"/></linearGradient></defs><rect x="15" y="16" width="34" height="42" rx="5" fill="none" stroke="#8b7cf6" stroke-opacity=".4" stroke-width="2.5" transform="rotate(-11 32 37)"/><rect x="15" y="16" width="34" height="42" rx="5" fill="none" stroke="#3fd8e6" stroke-opacity=".5" stroke-width="2.5" transform="rotate(7 32 37)"/><rect x="15" y="6" width="34" height="44" rx="5" fill="#0f1d25" stroke="url(#scry-g-head)" stroke-width="3"/><path d="M20.5 28 Q32 16.5 43.5 28 Q32 39.5 20.5 28 Z" fill="none" stroke="url(#scry-g-head)" stroke-width="2.6" stroke-linejoin="round"/><circle cx="32" cy="28" r="5.2" fill="url(#scry-g-head)"/><circle cx="30.2" cy="26.2" r="1.6" fill="#fff" fill-opacity=".92"/></svg><span class="wm">Scry</span><span class="ds">· Video Wall</span></h1>
+    <div class="health" id="health"></div>
+    <div class="user">
+      <span class="who" id="who"></span>
+      <div class="dd">
+        <button id="btnMenu" aria-haspopup="true">Conta ▾</button>
+        <div class="menu hidden" id="menuUser">
+          <button id="btnPwd">Minha senha</button>
+          <button id="btnManut">Manutenção automática</button>
+          <button id="btnUsers" class="hidden">Usuários</button>
+          <button id="btnAudit" class="hidden">Auditoria</button>
+          <button id="btnLogout">Sair</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <strong>Cenários</strong>
+    <div class="chips" id="chips"></div>
+    <div class="dd op-only">
+      <button id="btnScnMenu" class="small">Gerenciar ▾</button>
+      <div class="menu left hidden" id="menuScn">
+        <button id="scnNew">Novo cenário com a parede atual…</button>
+        <button id="scnSave">Salvar a parede atual em um cenário…</button>
+        <button id="scnRename">Renomear cenário…</button>
+        <button id="scnDel">Excluir cenário…</button>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button id="btnMosaic" class="adm-only" title="Mesclar painéis vizinhos em uma tela maior (ou separar)">▦ Mosaico</button>
+    <span class="op-only" style="display:contents">
+      <button id="btnReloadAll" title="F5 sem cache em todos os painéis, um a cada 1,5 s">⟳ Recarregar tudo</button>
+      <button id="btnReopenAll" title="Fecha e reabre todas as janelas">↻ Reabrir tudo</button>
+      <div class="dd" id="ddPause">
+        <button id="btnPause" class="warn">⏸ Pausar parede ▾</button>
+        <div class="menu hidden" id="menuPause">
+          <button data-min="30">Por 30 minutos</button>
+          <button data-min="60">Por 1 hora</button>
+          <button data-min="240">Por 4 horas</button>
+          <button data-min="0">Até alguém religar</button>
+        </div>
+      </div>
+      <button id="btnResume" class="primary hidden">▶ Religar parede</button>
+    </span>
+  </div>
+
+  <div class="selbar hidden" id="selbar">
+    <span><b>Mosaico</b></span>
+    <span class="msg" id="selMsg"></span>
+    <button class="primary" id="selMerge" disabled>Mesclar…</button>
+    <button id="selSplit" disabled>Separar</button>
+    <button id="selClear">Limpar seleção</button>
+    <button id="selDone">Concluir</button>
+  </div>
+
+  <div class="pausebar hidden" id="pausebar">
+    <span id="pauseText"></span>
+    <button class="primary small op-only" id="btnResume2">▶ Religar agora</button>
+  </div>
+
+  <div class="main" id="main">
+    <div>
+      <div class="canvas" id="canvas"></div>
+      <div class="legend">
+        <span class="pill s-ok"><i></i>ok</span>
+        <span class="pill s-load"><i></i>carregando</span>
+        <span class="pill s-old"><i></i>miniatura antiga</span>
+        <span class="pill s-off"><i></i>offline</span>
+        <span class="pill s-pause"><i></i>pausado</span>
+        <span class="op-only">Arraste um item da biblioteca para um painel, ou um painel sobre outro para trocá-los de lugar.</span>
+      </div>
+    </div>
+
+    <aside class="lib op-only" id="lib">
+      <div class="hd">
+        <h2>Biblioteca de dashboards <button class="small primary" id="libAdd">+ Adicionar</button></h2>
+        <input id="libSearch" placeholder="Buscar por nome ou link…" autocomplete="off">
+      </div>
+      <div class="list" id="libList"></div>
+      <div class="ft">Arraste para um painel · <b>→</b> escolhe o painel</div>
+    </aside>
+  </div>
+
+  <footer><span id="ver"></span><span id="lastUpd"></span></footer>
+</section>
+
+<!-- ============ MODAL: EDITAR PAINEL ============ -->
+<div class="modal hidden" id="mEdit">
+  <div class="box">
+    <h2>Painel <span id="eNum"></span></h2>
+    <label for="eLib">Escolher da biblioteca</label>
+    <select id="eLib"><option value="">—</option></select>
+    <label for="eNome">Nome</label>
+    <input id="eNome" maxlength="60">
+    <label for="eUrl">Link</label>
+    <textarea id="eUrl" rows="4" spellcheck="false"></textarea>
+    <div class="warns" id="eWarns"></div>
+    <div class="hint" id="eAtual"></div>
+    <label for="eZoom">Zoom (%)</label>
+    <input id="eZoom" type="number" min="25" max="300" step="1">
+    <div class="hint">Trocar só o link é instantâneo. Mudar o zoom reabre a janela daquele painel (alguns segundos).</div>
+    <label class="chk"><input type="checkbox" id="eToLib"> Salvar também na biblioteca</label>
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button class="primary" id="eSave">Salvar e aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: ITEM DA BIBLIOTECA ============ -->
+<div class="modal hidden" id="mLib">
+  <div class="box">
+    <h2 id="lTitle">Adicionar à biblioteca</h2>
+    <label for="lNome">Nome</label>
+    <input id="lNome" maxlength="60">
+    <label for="lUrl">Link</label>
+    <textarea id="lUrl" rows="4" spellcheck="false"></textarea>
+    <div class="warns" id="lWarns"></div>
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button class="primary" id="lSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: ESCOLHER PAINEL ============ -->
+<div class="modal hidden" id="mPick">
+  <div class="box">
+    <h2 id="pkTitle">Em qual painel?</h2>
+    <div class="pickgrid" id="pkGrid"></div>
+    <div class="foot"><button data-close>Cancelar</button></div>
+  </div>
+</div>
+
+<!-- ============ MODAL: TEXTO / ESCOLHA ============ -->
+<div class="modal hidden" id="mAsk">
+  <div class="box">
+    <h2 id="askTitle"></h2>
+    <div id="askSelWrap"><label for="askSel" id="askSelLabel">Cenário</label><select id="askSel"></select></div>
+    <div id="askInWrap"><label for="askInput" id="askLabel"></label><input id="askInput" maxlength="40"></div>
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button class="primary" id="askOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: MESCLAR ============ -->
+<div class="modal hidden" id="mMerge">
+  <div class="box">
+    <h2 id="mgTitle">Mesclar painéis</h2>
+    <div class="muted" id="mgInfo"></div>
+    <label class="radio"><input type="radio" name="mgEsc" value="ampliar" checked>
+      <span><b>Ampliar</b><small>O dashboard fica igual, só que maior e legível de longe (2×2 = 2× maior).</small></span></label>
+    <label class="radio"><input type="radio" name="mgEsc" value="espaco">
+      <span><b>Mais espaço</b><small>Mantém o tamanho da letra e mostra mais conteúdo do dashboard.</small></span></label>
+    <div class="warns" id="mgWarns"></div>
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button class="primary" id="mgOk">Mesclar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: MANUTENÇÃO AUTOMÁTICA ============ -->
+<div class="modal hidden" id="mManut">
+  <div class="box">
+    <h2>Manutenção automática</h2>
+    <div class="muted">O Scry confere cada painel cerca de 1 vez por minuto e corrige sozinho o que der: no máximo uma ação a cada 5 min por painel, tudo registrado na auditoria.</div>
+    <label class="chk"><input type="checkbox" id="mnAuto"> Corrigir automaticamente (reabrir janela sem resposta, recarregar erro de rede ou imagem congelada, refazer o login do Grafana)</label>
+    <label for="mnMin">Considerar congelado após (minutos sem mudar a imagem, só em links com <code>refresh=</code>; 0 desliga)</label>
+    <input id="mnMin" type="number" min="0" max="240" step="1">
+    <label for="mnHora">Reabertura diária preventiva (uma janela por vez, a cada 40 s; vazio desliga)</label>
+    <input id="mnHora" type="time">
+    <div class="hint" id="mnInfo"></div>
+    <label>Últimas ações automáticas</label>
+    <pre class="audit" id="mnEv" style="max-height:30vh"></pre>
+    <div class="foot">
+      <button data-close>Fechar</button>
+      <button class="primary adm-only" id="mnSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: MINHA SENHA ============ -->
+<div class="modal hidden" id="mPwd">
+  <div class="box">
+    <h2>Trocar minha senha</h2>
+    <label for="pA">Senha atual</label><input id="pA" type="password" autocomplete="current-password">
+    <label for="pN">Nova senha (mín. 10 caracteres)</label><input id="pN" type="password" autocomplete="new-password">
+    <label for="pC">Repita a nova senha</label><input id="pC" type="password" autocomplete="new-password">
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button class="primary" id="pSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: USUÁRIOS ============ -->
+<div class="modal hidden" id="mUsers">
+  <div class="box wide">
+    <h2>Usuários</h2>
+    <div class="muted">Papéis: <b>admin</b> (tudo, inclusive mosaico, usuários e auditoria) · <b>operador</b> (altera painéis, cenários e biblioteca) · <b>visualizador</b> (só vê).</div>
+    <table>
+      <thead><tr><th>Usuário</th><th>Nome</th><th>Papel</th><th>Ativo</th><th>Nova senha</th><th></th></tr></thead>
+      <tbody id="uBody"></tbody>
+    </table>
+    <h2 style="margin-top:20px">Novo usuário</h2>
+    <div class="row4">
+      <div><label>Usuário</label><input id="nuU" maxlength="32"></div>
+      <div><label>Nome</label><input id="nuN" maxlength="60"></div>
+      <div><label>Papel</label>
+        <select id="nuP"><option value="operador">operador</option><option value="visualizador">visualizador</option><option value="admin">admin</option></select></div>
+      <div><label>Senha (mín. 10)</label><input id="nuS" type="password" autocomplete="new-password"></div>
+      <div><button class="primary" id="nuAdd">Criar</button></div>
+    </div>
+    <div class="foot"><button data-close>Fechar</button></div>
+  </div>
+</div>
+
+<!-- ============ MODAL: AUDITORIA ============ -->
+<div class="modal hidden" id="mAudit">
+  <div class="box wide">
+    <h2>Auditoria <span class="muted" style="font-size:13px">(últimos 300 eventos, mais recentes primeiro)</span></h2>
+    <pre class="audit" id="auditPre"></pre>
+    <div class="foot"><button id="auditRefresh">Atualizar</button><button data-close>Fechar</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const RANK = { visualizador: 1, operador: 2, admin: 3 };
+const N_PANELS = 10;
+const BUSY_TIMEOUT = 45000;
+// parede padrao caso o Start-Wall ainda nao tenha gravado o layout.json
+const DEFAULT_LAYOUT = {
+  telas: [{ x: 0, y: 0, w: 3840, h: 2160 }, { x: 3840, y: 0, w: 3840, h: 2160 },
+          { x: 7680, y: 0, w: 1920, h: 1080 }, { x: 7680, y: 1080, w: 1920, h: 1080 }],
+  tiles: Array.from({ length: N_PANELS }, (_, n) => ({ n, x: Math.floor(n / 2) * 1920, y: (n % 2) * 1080, w: 1920, h: 1080 }))
+};
+
+let me = null, cfg = null, st = null, stAt = 0, timer = null;
+const busy = {};        // n -> { label, phase: 'req'|'load'|'done', after, until }
+const shownT = {};      // n -> imgT exibido
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "text") e.textContent = v;
+    else e.setAttribute(k, v);
+  }
+  for (const c of kids) if (c != null) e.append(c);
+  return e;
+};
+const can = (role) => me && RANK[me.papel] >= RANK[role];
+const panelOf = (n) => (cfg.paineis || []).find(p => Number(p.n) === n);
+
+// ---- mosaico: areas mescladas (o ancora ocupa tudo; os outros ficam fechados)
+const mosaic = () => (cfg && cfg.mosaico) || [];
+const areaOf = (n) => mosaic().find(a => Number(a.n) === n) || null;
+const absorbedBy = (n) => { const a = mosaic().find(a => Number(a.n) !== n && (a.paineis || []).map(Number).includes(n)); return a ? Number(a.n) : null; };
+const visiblePanels = () => { const v = []; for (let n = 0; n < N_PANELS; n++) if (absorbedBy(n) === null) v.push(n); return v; };
+const mosSig = (m) => JSON.stringify((m || []).map(a => [Number(a.n), (a.paineis || []).map(Number).sort((x, y) => x - y).join(","), a.escala || "ampliar"]).sort((a, b) => a[0] - b[0]));
+function areaLabel(a) {
+  const t = layout().tiles.find(x => Number(x.n) === Number(a.n)) || { w: 1920, h: 1080 };
+  return `${Math.round(a.w / t.w)}×${Math.round(a.h / t.h)}`;
+}
+const serverNow = () => st ? st.agoraMs + (Date.now() - stAt) : Date.now();
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+const shortUrl = (u) => { try { const x = new URL(u); return x.host + x.pathname; } catch (_) { return u; } };
+
+// ---------------------------------------------------------------- toast (com Desfazer)
+function toast(msg, isErr = false, undo = null) {
+  const t = el("div", { class: "t" + (isErr ? " e" : "") }, el("span", { text: msg }));
+  if (undo) t.append(el("button", { class: "small", text: "Desfazer", onclick: () => { t.remove(); undo(); } }));
+  $("toast").append(t);
+  setTimeout(() => t.remove(), undo ? 10000 : (isErr ? 7000 : 4000));
+}
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-NOC": "1" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (r.status === 401 && path !== "/api/login") { showLogin(); throw new Error((data && data.erro) || "Sessão expirada."); }
+  if (!r.ok) throw new Error((data && data.erro) || ("Erro " + r.status));
+  return data;
+}
+
+// ---------------------------------------------------------------- avisos sobre o link
+function urlWarnings(url) {
+  const w = [];
+  if (!url) return w;
+  const m = /[?&]refresh=(\d+)(ms|s|m|h)?(&|$)/i.exec(url);
+  if (m) {
+    const mult = { ms: 0.001, s: 1, m: 60, h: 3600 }[(m[2] || "s").toLowerCase()];
+    const sec = Number(m[1]) * mult;
+    if (sec < 30) w.push(`Atualização a cada ${m[1]}${m[2] || "s"}: abaixo de 30s aumenta muito o uso de memória do Chrome na parede (foi a causa das quedas do C-Control). Prefira refresh=30s ou mais.`);
+  }
+  if (/\/login(\?|$)/.test(url)) w.push("Este é o link da tela de login, não de um dashboard.");
+  if (/\/goto\//.test(url)) w.push("Links /goto/ passam pela tela de login e podem ficar parados nela. Use o link completo do dashboard.");
+  if (/grafana/i.test(url) && /\/d\//.test(url) && !/[?&]kiosk/.test(url)) w.push("Sem o parâmetro kiosk, o menu do Grafana aparece na tela. Acrescente &kiosk ao link.");
+  return w;
+}
+function renderWarns(boxId, url) {
+  const b = $(boxId); b.innerHTML = "";
+  for (const t of urlWarnings(url)) b.append(el("div", { text: "⚠ " + t }));
+}
+
+// ---------------------------------------------------------------- login
+function showLogin() {
+  me = null; clearTimeout(timer);
+  $("app").classList.add("hidden"); $("login").classList.remove("hidden");
+  $("lp").value = ""; $("lu").focus();
+  fetch("/api/versao").then(r => r.json()).then(v => $("loginVer").textContent = "Scry v" + v.versao).catch(() => {});
+}
+$("loginForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault(); $("loginErr").textContent = "";
+  try {
+    me = await api("POST", "/api/login", { usuario: $("lu").value.trim(), senha: $("lp").value });
+    startApp();
+  } catch (e) { $("loginErr").textContent = e.message; }
+});
+$("btnLogout").onclick = async () => { try { await api("POST", "/api/logout", {}); } catch (_) {} showLogin(); };
+
+// ---------------------------------------------------------------- menus suspensos
+function wireMenu(btnId, menuId) {
+  $(btnId).addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const m = $(menuId), open = m.classList.contains("hidden");
+    document.querySelectorAll(".menu").forEach(x => x.classList.add("hidden"));
+    if (open) m.classList.remove("hidden");
+  });
+}
+document.addEventListener("click", () => document.querySelectorAll(".menu").forEach(x => x.classList.add("hidden")));
+wireMenu("btnMenu", "menuUser"); wireMenu("btnScnMenu", "menuScn"); wireMenu("btnPause", "menuPause");
+
+// ---------------------------------------------------------------- app
+async function startApp() {
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("who").textContent = `${me.nome} · ${me.papel}`;
+  $("btnUsers").classList.toggle("hidden", !can("admin"));
+  $("btnAudit").classList.toggle("hidden", !can("admin"));
+  document.querySelectorAll(".adm-only").forEach(x => x.classList.toggle("hidden", !can("admin")));
+  setSelMode(false);
+  document.querySelectorAll(".op-only").forEach(x => x.classList.toggle("hidden", !can("operador")));
+  $("main").classList.toggle("nolib", !can("operador"));
+  await loadState();
+  buildWall();
+  await poll();
+}
+
+async function loadState() {
+  cfg = await api("GET", "/api/estado");
+  renderScenarios(); renderNames(); renderLib();
+}
+
+// ---------------------------------------------------------------- parede fiel
+function layout() {
+  const L = cfg && cfg.layout;
+  if (L && Array.isArray(L.telas) && Array.isArray(L.tiles) && L.tiles.length >= N_PANELS) return L;
+  return DEFAULT_LAYOUT;
+}
+function buildWall() {
+  const L = layout(), cv = $("canvas");
+  const minX = Math.min(...L.telas.map(t => t.x)), minY = Math.min(...L.telas.map(t => t.y));
+  const maxX = Math.max(...L.telas.map(t => t.x + t.w)), maxY = Math.max(...L.telas.map(t => t.y + t.h));
+  const W = maxX - minX, H = maxY - minY;
+  const pct = (v, tot) => (v / tot * 100).toFixed(4) + "%";
+  cv.innerHTML = "";
+  cv.style.aspectRatio = `${W} / ${H}`;
+  L.telas.forEach((t, i) => {
+    const up = t.y === minY && (t.y + t.h) < maxY;   // tela de cima de uma pilha: rotulo acima
+    const s = el("div", { class: "screen" }, el("span", { class: "lbl" + (up ? " up" : ""), text: `Tela ${i + 1} · ${t.w}×${t.h}` }));
+    Object.assign(s.style, { left: pct(t.x - minX, W), top: pct(t.y - minY, H), width: pct(t.w, W), height: pct(t.h, H) });
+    cv.append(s);
+  });
+  wallGeo = { minX, minY, W, H };
+  for (let n = 0; n < N_PANELS; n++) {
+    const tl = L.tiles.find(t => Number(t.n) === n); if (!tl) continue;
+    if (absorbedBy(n) !== null) { delete shownT[n]; continue; }      // fechado: faz parte de outro painel
+    const ar = areaOf(n);
+    const gw = ar ? Number(ar.w) : tl.w, gh = ar ? Number(ar.h) : tl.h;
+    const img = el("img", { id: "img" + n, alt: "", class: "hidden" });
+    const card = el("div", { class: "card", id: "card" + n, "data-n": String(n) },
+      el("div", { class: "in" },
+        img,
+        el("div", { class: "ph", id: "ph" + n, text: "carregando…" }),
+        el("div", { class: "top" },
+          el("span", { class: "num", text: String(n) }),
+          ar ? el("span", { class: "tag area", text: areaLabel(ar), title: `Mesclado: painéis ${(ar.paineis || []).join(", ")} · ${ar.escala === "espaco" ? "mais espaço" : "ampliado"}` }) : null,
+          el("span", { class: "name", id: "name" + n }),
+          el("span", { class: "tag hidden", id: "diff" + n, text: "≠ cenário", title: "Diferente do cenário ativo" }),
+          el("span", { class: "pill", id: "pill" + n }, el("i"), el("span", { id: "pillt" + n, text: "…" }))),
+        el("div", { class: "busy hidden", id: "busy" + n }, el("span", {}, el("div", { class: "spin" }), el("b", { id: "busyt" + n }))),
+        can("operador") ? el("div", { class: "acts" },
+          el("button", { text: "Editar", onclick: () => openEdit(n) }),
+          el("button", { text: "Recarregar", onclick: () => panelAction(n, "recarregar") }),
+          el("button", { text: "Reabrir", onclick: () => panelAction(n, "reabrir") }),
+          ar && can("admin") ? el("button", { text: "Separar", title: "Volta a ser painéis independentes", onclick: () => splitArea(n) }) : null,
+          el("a", { href: "#", id: "open" + n, target: "_blank", rel: "noopener noreferrer", text: "Abrir ↗", title: "Abrir este dashboard no seu navegador" }))
+          : el("div", { class: "acts" }, el("a", { href: "#", id: "open" + n, target: "_blank", rel: "noopener noreferrer", text: "Abrir ↗" }))));
+    Object.assign(card.style, { left: pct(tl.x - minX, W), top: pct(tl.y - minY, H), width: pct(gw, W), height: pct(gh, H), aspectRatio: `${gw} / ${gh}` });
+    if (can("operador")) wireDrop(card, n);
+    // modo mosaico: clicar seleciona (captura antes dos botoes do cartao)
+    card.addEventListener("click", (ev) => { if (!selMode) return; ev.preventDefault(); ev.stopPropagation(); toggleSel(n); }, true);
+    if (selected.has(n)) card.classList.add("sel");
+    cv.append(card);
+    delete shownT[n];
+  }
+  for (const n of [...selected]) if (!$("card" + n)) selected.delete(n);
+  for (const k of Object.keys(busy)) if (!$("card" + k)) delete busy[k];
+  renderNames();
+  renderSel();
+  const vis = visiblePanels().length;
+  $("btnReopenAll").title = `Fecha e reabre as ${vis} janelas`;
+}
+
+// ---------------------------------------------------------------- mosaico (somente admin)
+let selMode = false, wallGeo = null;
+const selected = new Set();
+function setSelMode(on) {
+  selMode = !!on && can("admin");
+  if (!selMode) selected.clear();
+  $("selbar").classList.toggle("hidden", !selMode);
+  $("canvas").classList.toggle("selmode", selMode);
+  $("btnMosaic").classList.toggle("primary", selMode);
+  document.querySelectorAll(".card").forEach(c => c.classList.toggle("sel", selected.has(Number(c.dataset.n))));
+  renderSel();
+}
+function toggleSel(n) {
+  if (selected.has(n)) selected.delete(n); else selected.add(n);
+  const c = $("card" + n); if (c) c.classList.toggle("sel", selected.has(n));
+  renderSel();
+}
+// mesma regra do servidor: a selecao (com as areas inteiras dos ancoras) precisa ser um retangulo exato
+function selectionArea() {
+  const L = layout(), cells = new Set();
+  for (const n of selected) { const a = areaOf(n); if (a) (a.paineis || []).forEach(p => cells.add(Number(p))); else cells.add(n); }
+  if (cells.size < 2) return { erro: "Clique nos painéis vizinhos que vão virar uma tela só (pelo menos 2)." };
+  const ts = [...cells].map(n => L.tiles.find(t => Number(t.n) === n)).filter(Boolean);
+  const x0 = Math.min(...ts.map(t => t.x)), y0 = Math.min(...ts.map(t => t.y));
+  const x1 = Math.max(...ts.map(t => t.x + t.w)), y1 = Math.max(...ts.map(t => t.y + t.h));
+  const box = { x0, y0, x1, y1 };
+  for (const t of L.tiles) {
+    const inside = t.x >= x0 && t.y >= y0 && t.x + t.w <= x1 && t.y + t.h <= y1;
+    if (inside && !cells.has(Number(t.n))) {
+      const ab = absorbedBy(Number(t.n));
+      return { erro: `Não forma um retângulo: inclua também o painel ${ab !== null ? ab : t.n}.`, box };
+    }
+  }
+  const sum = ts.reduce((s, t) => s + t.w * t.h, 0);
+  // folga de ate 8 px entre telas (o Windows as vezes deixa 1 px entre monitores)
+  if (Math.abs((x1 - x0) * (y1 - y0) - sum) > 8 * ((x1 - x0) + (y1 - y0))) return { erro: "Não forma um retângulo.", box };
+  const anc = ts.find(t => t.x === x0 && t.y === y0);
+  if (!anc || ts.length !== cells.size) return { erro: "Não forma um retângulo.", box };
+  const telas = (L.telas || []).filter(s => s.x < x1 && s.x + s.w > x0 && s.y < y1 && s.y + s.h > y0).length;
+  return { n: Number(anc.n), paineis: [...cells].sort((a, b) => a - b), w: x1 - x0, h: y1 - y0,
+           label: `${Math.round((x1 - x0) / anc.w)}×${Math.round((y1 - y0) / anc.h)}`, telas, box };
+}
+function renderSel() {
+  const cv = $("canvas"); const old = cv.querySelector(".selbox"); if (old) old.remove();
+  if (!selMode) return;
+  const r = selectionArea();
+  const one = selected.size === 1 ? [...selected][0] : null;
+  const msg = $("selMsg");
+  msg.classList.toggle("bad", !!(r.erro && selected.size >= 2));
+  if (r.erro) msg.textContent = selected.size === 1 && areaOf(one) ? `Painel ${one} (${areaLabel(areaOf(one))}) selecionado: separe, ou clique em vizinhos para aumentar a área.` : r.erro;
+  else msg.textContent = `Painéis ${r.paineis.join(", ")} → painel ${r.n} em ${r.label}` + (r.telas > 1 ? ` · atravessa ${r.telas} monitores` : "");
+  $("selMerge").disabled = !!r.erro;
+  $("selSplit").disabled = !(one !== null && areaOf(one));
+  if (r.box && wallGeo) {
+    const g = wallGeo, pct = (v, tot) => (v / tot * 100).toFixed(4) + "%";
+    const b = el("div", { class: "selbox" + (r.erro ? " bad" : "") });
+    Object.assign(b.style, { left: pct(r.box.x0 - g.minX, g.W), top: pct(r.box.y0 - g.minY, g.H), width: pct(r.box.x1 - r.box.x0, g.W), height: pct(r.box.y1 - r.box.y0, g.H) });
+    cv.append(b);
+  }
+}
+$("btnMosaic").onclick = () => setSelMode(!selMode);
+$("selDone").onclick = () => setSelMode(false);
+$("selClear").onclick = () => { selected.clear(); setSelMode(true); };
+$("selSplit").onclick = () => { const one = [...selected][0]; if (one !== undefined) splitArea(one); };
+$("selMerge").onclick = () => {
+  const r = selectionArea(); if (r.erro) return;
+  $("mgTitle").textContent = `Mesclar painéis ${r.paineis.join(", ")} (${r.label})`;
+  const outros = r.paineis.filter(p => p !== r.n);
+  const pn = panelOf(r.n);
+  $("mgInfo").textContent = `O painel ${r.n}${pn ? ` ("${pn.nome}")` : ""} passa a ocupar a área inteira e mantém o dashboard dele. ` +
+    `${outros.length > 1 ? "Os painéis" : "O painel"} ${outros.join(", ")} ${outros.length > 1 ? "ficam fechados" : "fica fechado"} até você separar; ao separar, cada um volta com o dashboard que tinha.`;
+  const w = $("mgWarns"); w.innerHTML = "";
+  if (r.telas > 1) w.append(el("div", { text: `⚠ A área atravessa ${r.telas} monitores físicos: a moldura entre eles vai cortar o meio da imagem.` }));
+  document.querySelector('input[name="mgEsc"][value="ampliar"]').checked = true;
+  openModal("mMerge");
+};
+$("mgOk").onclick = async () => {
+  const r = selectionArea(); if (r.erro) return;
+  const escala = document.querySelector('input[name="mgEsc"]:checked').value;
+  closeModal("mMerge");
+  for (const p of r.paineis) if ($("card" + p)) startBusy(p, "Mesclando…");
+  try {
+    const res = await api("POST", "/api/mosaico/mesclar", { paineis: [...selected], escala });
+    setSelMode(false);
+    await afterWallChange(res, [res.n], "Abrindo a janela maior…");
+    toast(res.msg, false, res.desfazer ? () => undoSnap(res.desfazer) : null);
+  } catch (e) { for (const p of r.paineis) clearBusy(p); toast(e.message, true); }
+};
+async function splitArea(n) {
+  const a = areaOf(n); if (!a) return;
+  if (!confirm(`Separar o painel ${n} (${areaLabel(a)})? Os painéis ${(a.paineis || []).join(", ")} voltam a ser independentes, cada um com o dashboard que tinha.`)) return;
+  startBusy(n, "Separando…");
+  try {
+    const res = await api("POST", "/api/mosaico/separar", { n });
+    setSelMode(false);
+    await afterWallChange(res, (a.paineis || []).map(Number), "Abrindo janela…");
+    toast(res.msg, false, res.desfazer ? () => undoSnap(res.desfazer) : null);
+  } catch (e) { clearBusy(n); toast(e.message, true); }
+}
+// recarrega estado, redesenha a grade se o mosaico mudou e acompanha as janelas reabertas
+async function afterWallChange(res, extra, label) {
+  const before = mosSig(mosaic());
+  await loadState();
+  if (mosSig(mosaic()) !== before) buildWall();
+  const reab = new Set([...(res.afetados || []), ...(extra || [])].map(Number));
+  for (const n of reab) if ($("card" + n)) { startBusy(n, label); waitScreen(n, label, 90000); }
+  poll();
+}
+async function undoSnap(id) {
+  try {
+    const res = await api("POST", `/api/desfazer/${id}`, {});
+    await afterWallChange(res, [], "Desfazendo…");
+    toast(res.msg);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderNames() {
+  if (!cfg) return;
+  const act = (cfg.cenarios || []).find(c => c.id === cfg.cenarioAtivo);
+  for (let n = 0; n < N_PANELS; n++) {
+    const p = panelOf(n), e = $("name" + n);
+    if (e) { e.textContent = p ? p.nome : "(vazio)"; e.title = p ? p.url : ""; }
+    const o = $("open" + n); if (o && p) o.href = p.url;
+    const d = $("diff" + n);
+    if (d) {
+      const ap = act && (act.paineis || []).find(x => Number(x.n) === n);
+      const differs = act && p && (!ap || ap.url !== p.url || ap.nome !== p.nome || Number(ap.zoom) !== Number(p.zoom));
+      d.classList.toggle("hidden", !differs);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- status (cache do servidor: barato)
+async function poll() {
+  clearTimeout(timer);
+  try {
+    st = await api("GET", "/api/status"); stAt = Date.now();
+    renderStatus();
+  } catch (_) {}
+  if (!me) return;
+  const anyBusy = Object.values(busy).some(b => b.phase !== "done");
+  timer = setTimeout(poll, anyBusy ? 1200 : 4000);
+}
+
+let reloadingMosaic = false;
+function renderStatus() {
+  // outro admin mudou o mosaico: recarrega o estado e redesenha a grade
+  if (cfg && st.mosaicoSig !== undefined && st.mosaicoSig !== cfg.mosaicoSig && !reloadingMosaic) {
+    reloadingMosaic = true;
+    loadState().then(buildWall).catch(() => {}).finally(() => { reloadingMosaic = false; });
+  }
+  const now = serverNow();
+  const pausa = st.pausa;
+  let online = 0;
+  for (const s of st.paineis) {
+    const n = s.n, card = $("card" + n); if (!card || s.absorvido != null) continue;
+    if (s.online) online++;
+    // miniatura: so troca quando o servidor tem uma nova (sem piscar, sem tráfego à toa)
+    if (s.imgT && shownT[n] !== s.imgT) {
+      const pre = new Image(), t = s.imgT;
+      pre.onload = () => { const i = $("img" + n); if (!i) return; i.src = pre.src; i.classList.remove("hidden"); $("ph" + n).classList.add("hidden"); };
+      pre.src = `/api/paineis/${n}/print?t=${t}`;
+      shownT[n] = t;
+    }
+    if (!s.imgT && !s.online) { $("img" + n).classList.add("hidden"); const ph = $("ph" + n); ph.classList.remove("hidden"); ph.textContent = pausa ? "parede pausada" : "sem imagem (janela fechada)"; }
+
+    // progresso de uma acao deste painel
+    const b = busy[n];
+    if (b && b.phase === "load") {
+      if (s.imgT && s.imgT > b.after && !s.pendente) { b.phase = "done"; b.until = Date.now() + 1600; b.label = "Pronto"; }
+      else if (Date.now() - b.started > (b.timeout || BUSY_TIMEOUT)) { delete busy[n]; toast(`Painel ${n}: a tela não confirmou a mudança a tempo. Confira a miniatura.`, true); }
+    }
+    if (b && b.phase === "done" && Date.now() > b.until) delete busy[n];
+    renderBusy(n);
+
+    // estado
+    let cls, txt;
+    const age = s.imgT ? Math.max(0, Math.round((now - s.imgT) / 1000)) : null;
+    const al = s.alerta, alAge = al && al.desde ? Math.max(0, Math.round((Date.now() - new Date(al.desde)) / 1000)) : 0;
+    const ALERTA = { travado: ["s-old", "congelado"], login: ["s-off", "tela de login"], naoResponde: ["s-off", "não responde"], erro: ["s-off", "erro de rede"] };
+    if (pausa) { cls = "s-pause"; txt = "pausado"; }
+    else if (!s.online) { cls = "s-off"; txt = al ? `offline há ${fmtAge(alAge)}` : "offline"; }
+    else if (al && ALERTA[al.estado] && !busy[n]) { [cls, txt] = ALERTA[al.estado]; txt += ` · ${fmtAge(alAge)}`; }
+    else if (busy[n] || s.pendente) { cls = "s-load"; txt = "carregando"; }
+    else if (age === null || age > 45) { cls = "s-old"; txt = age === null ? "sem miniatura" : `há ${fmtAge(age)}`; }
+    else { cls = "s-ok"; txt = `ok · ${fmtAge(age)}`; }
+    card.classList.remove("s-ok", "s-load", "s-old", "s-off", "s-pause"); card.classList.add(cls);
+    const pill = $("pill" + n); pill.className = "pill " + cls; $("pillt" + n).textContent = txt;
+    pill.title = s.online ? ("Aberto agora: " + (s.urlAtual || "")) : "Janela fechada ou sem porta de depuração";
+  }
+  renderHealth(online);
+  renderPause();
+  $("ver").textContent = "Scry · Video Wall v" + st.versao;
+  $("lastUpd").textContent = "· atualizado " + new Date().toLocaleTimeString("pt-BR");
+}
+const fmtAge = (s) => s < 60 ? `${s}s` : `${Math.round(s / 60)} min`;
+
+function renderBusy(n) {
+  const b = busy[n], box = $("busy" + n); if (!box) return;
+  if (!b) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden"); box.classList.toggle("done", b.phase === "done");
+  box.querySelector(".spin").classList.toggle("hidden", b.phase === "done");
+  $("busyt" + n).textContent = b.phase === "done" ? "✓ Pronto" : b.label;
+}
+function startBusy(n, label) { busy[n] = { label, phase: "req", started: Date.now(), after: serverNow() }; renderBusy(n); }
+function waitScreen(n, label = "Carregando…", timeout = BUSY_TIMEOUT) {
+  const b = busy[n] || (busy[n] = { started: Date.now() });
+  b.phase = "load"; b.label = label; b.after = serverNow(); b.started = Date.now(); b.timeout = timeout;
+  renderBusy(n);
+}
+function clearBusy(n) { delete busy[n]; renderBusy(n); }
+
+function renderHealth(online) {
+  const h = $("health"); h.innerHTML = "";
+  const chip = (cls, label, val, title) => h.append(el("span", { class: "hc " + cls, title: title || "" }, label + " ", el("b", { text: val })));
+  const total = visiblePanels().length, nm = mosaic().length;
+  chip(online === total ? "ok" : (online === 0 ? "bad" : "warn"), "Painéis", `${online}/${total}`,
+       nm ? `${total} janelas: ${nm} área(s) mesclada(s) no mosaico` : "");
+  const pc = st.pc;
+  if (pc) {
+    const usedPct = Math.round((1 - pc.memLivreMB / pc.memTotalMB) * 100);
+    chip(usedPct > 85 ? "bad" : usedPct > 70 ? "warn" : "ok", "RAM", `${usedPct}%`, `${(pc.memLivreMB / 1024).toFixed(1)} GB livres de ${(pc.memTotalMB / 1024).toFixed(1)} GB`);
+    chip(pc.cpu > 85 ? "bad" : pc.cpu > 60 ? "warn" : "ok", "CPU", `${pc.cpu}%`);
+    const cg = pc.chromeMB / 1024;
+    chip(cg > 11 ? "bad" : cg > 8 ? "warn" : "ok", "Chrome", `${cg.toFixed(1)} GB`, `${pc.chromeProc} processos dos painéis`);
+    chip("", "Ligado há", pc.uptimeH < 48 ? `${pc.uptimeH} h` : `${Math.round(pc.uptimeH / 24)} dias`);
+    chip(pc.managerMB > 500 ? "warn" : "", "Gerenciador", `${pc.managerMB} MB`);
+  }
+  const m = st.manut;
+  if (m) {
+    const prox = m.proxima ? new Date(m.proxima) : null;
+    const quando = prox ? (prox.toDateString() === new Date().toDateString() ? "hoje " : "amanhã ") + fmtTime(m.proxima) : "sem reabertura diária";
+    chip(m.auto ? "ok" : "warn", "Auto", m.auto ? "ligada" : "desligada",
+      `Manutenção automática ${m.auto ? "ligada" : "desligada"} · próxima reabertura: ${quando}` + (m.ultimo ? `\nÚltima ação: ${m.ultimo}` : ""));
+  }
+}
+
+function renderPause() {
+  const p = st.pausa, bar = $("pausebar");
+  $("ddPause").classList.toggle("hidden", !!p);
+  $("btnResume").classList.toggle("hidden", !p || !can("operador"));
+  $("btnReloadAll").disabled = !!p; $("btnReopenAll").disabled = !!p;
+  if (!p) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  let txt = `Parede pausada por ${p.por} às ${fmtTime(p.desde)}`;
+  if (p.ate) {
+    const min = Math.max(0, Math.ceil((new Date(p.ate) - new Date(st.agora)) / 60000));
+    txt += ` · volta sozinha às ${fmtTime(p.ate)} (em ${min} min)`;
+  } else txt += " · até alguém religar";
+  $("pauseText").textContent = txt;
+}
+
+// ---------------------------------------------------------------- ações por painel
+async function panelAction(n, acao) {
+  if (acao === "reabrir" && !confirm(`Reabrir a janela do painel ${n}? Ela fica apagada por alguns segundos.`)) return;
+  startBusy(n, acao === "reabrir" ? "Reabrindo…" : "Recarregando…");
+  try {
+    const r = await api("POST", `/api/paineis/${n}/${acao}`, {});
+    if (r.ok === false) { clearBusy(n); toast(r.msg, true); return; }
+    waitScreen(n, acao === "reabrir" ? "Reabrindo janela…" : "Carregando…", acao === "reabrir" ? 90000 : BUSY_TIMEOUT);
+    poll();
+  } catch (e) { clearBusy(n); toast(e.message, true); }
+}
+
+// aplica varios paineis (troca, biblioteca, desfazer) com progresso e Desfazer
+async function applyLote(paineis, motivo, okMsg, allowUndo = true) {
+  for (const p of paineis) startBusy(p.n, "Trocando link…");
+  try {
+    const r = await api("POST", "/api/paineis/lote", { paineis, motivo });
+    await loadState();
+    for (const p of paineis) waitScreen(p.n);
+    poll();
+    const ant = r.anteriores || [];
+    toast(okMsg || r.msg, false, allowUndo && ant.length ? () => applyLote(ant, "desfazer", "Alteração desfeita.", false) : null);
+  } catch (e) { for (const p of paineis) clearBusy(p.n); toast(e.message, true); }
+}
+
+// ---------------------------------------------------------------- arrastar e soltar
+let dragKind = null, dragVal = null;
+function wireDrop(card, n) {
+  card.setAttribute("draggable", "true");
+  card.addEventListener("dragstart", (ev) => { if (selMode) { ev.preventDefault(); return; } dragKind = "panel"; dragVal = n; ev.dataTransfer.setData("text/plain", "p" + n); ev.dataTransfer.effectAllowed = "move"; });
+  card.addEventListener("dragend", () => { dragKind = null; document.querySelectorAll(".card.drop").forEach(c => c.classList.remove("drop")); });
+  card.addEventListener("dragover", (ev) => { if (!dragKind || (dragKind === "panel" && dragVal === n)) return; ev.preventDefault(); card.classList.add("drop"); });
+  card.addEventListener("dragleave", () => card.classList.remove("drop"));
+  card.addEventListener("drop", (ev) => {
+    ev.preventDefault(); card.classList.remove("drop");
+    if (dragKind === "lib") { const it = (cfg.biblioteca || []).find(b => b.id === dragVal); if (it) libToPanel(it, n); }
+    else if (dragKind === "panel" && dragVal !== n) swapPanels(dragVal, n);
+    dragKind = null;
+  });
+}
+function libToPanel(it, n) {
+  const cur = panelOf(n) || { zoom: 0.67 };
+  if (cur.url === it.url) { toast(`O painel ${n} já mostra "${it.nome}".`); return; }
+  applyLote([{ n, nome: it.nome, url: it.url, zoom: Number(cur.zoom) || 0.67 }], "biblioteca", `Painel ${n}: "${it.nome}".`);
+}
+function swapPanels(a, b) {
+  const pa = panelOf(a), pb = panelOf(b); if (!pa || !pb) return;
+  applyLote([{ n: a, nome: pb.nome, url: pb.url, zoom: pb.zoom }, { n: b, nome: pa.nome, url: pa.url, zoom: pa.zoom }],
+            "trocar", `Painéis ${a} e ${b} trocados de lugar.`);
+}
+
+// ---------------------------------------------------------------- biblioteca
+function renderLib() {
+  const box = $("libList"); if (!box || !cfg) return;
+  const q = ($("libSearch").value || "").toLowerCase();
+  const inUse = new Set((cfg.paineis || []).map(p => p.url));
+  box.innerHTML = "";
+  const items = (cfg.biblioteca || []).filter(b => !q || b.nome.toLowerCase().includes(q) || b.url.toLowerCase().includes(q))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!items.length) box.append(el("div", { class: "muted", style: "padding:10px", text: q ? "Nada encontrado." : "Biblioteca vazia. Use + Adicionar." }));
+  for (const it of items) {
+    const li = el("div", { class: "li" + (inUse.has(it.url) ? " inuse" : ""), draggable: "true", title: it.url },
+      el("span", { class: "grip", text: "⋮⋮" }),
+      el("div", { class: "tx" }, el("b", { text: it.nome }), el("small", { text: shortUrl(it.url) })),
+      el("div", { class: "ops" },
+        el("button", { class: "small", text: "→", title: "Escolher o painel", onclick: () => pickPanel(`Mostrar "${it.nome}" em qual painel?`, (n) => libToPanel(it, n)) }),
+        el("button", { class: "small", text: "✎", title: "Editar", onclick: () => openLibEdit(it) }),
+        el("button", { class: "small danger", text: "✕", title: "Remover da biblioteca", onclick: () => delLib(it) })));
+    li.addEventListener("dragstart", (ev) => { dragKind = "lib"; dragVal = it.id; ev.dataTransfer.setData("text/plain", "lib:" + it.id); ev.dataTransfer.effectAllowed = "copy"; });
+    li.addEventListener("dragend", () => { dragKind = null; document.querySelectorAll(".card.drop").forEach(c => c.classList.remove("drop")); });
+    box.append(li);
+  }
+  // opcoes do "Escolher da biblioteca" no editor
+  const sel = $("eLib"); sel.innerHTML = ""; sel.append(el("option", { value: "", text: "—" }));
+  for (const it of [...(cfg.biblioteca || [])].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))) sel.append(el("option", { value: it.id, text: it.nome }));
+}
+$("libSearch").addEventListener("input", renderLib);
+
+let libEditing = null;
+function openLibEdit(it) {
+  libEditing = it ? it.id : null;
+  $("lTitle").textContent = it ? "Editar item da biblioteca" : "Adicionar à biblioteca";
+  $("lNome").value = it ? it.nome : ""; $("lUrl").value = it ? it.url : "https://grafana.armazem.cloud/d/";
+  renderWarns("lWarns", $("lUrl").value);
+  openModal("mLib"); $("lNome").focus();
+}
+$("libAdd").onclick = () => openLibEdit(null);
+$("lUrl").addEventListener("input", () => renderWarns("lWarns", $("lUrl").value));
+$("lSave").onclick = async () => {
+  const body = { nome: $("lNome").value.trim(), url: $("lUrl").value.trim() };
+  try {
+    const r = libEditing ? await api("PUT", `/api/biblioteca/${libEditing}`, body) : await api("POST", "/api/biblioteca", body);
+    toast(r.msg); closeModal("mLib"); await loadState();
+  } catch (e) { toast(e.message, true); }
+};
+async function delLib(it) {
+  if (!confirm(`Remover "${it.nome}" da biblioteca? Os painéis não mudam.`)) return;
+  try { const r = await api("DELETE", `/api/biblioteca/${it.id}`); await loadState();
+    toast(r.msg, false, async () => { try { await api("POST", "/api/biblioteca", { nome: it.nome, url: it.url }); await loadState(); toast("Item restaurado."); } catch (e) { toast(e.message, true); } });
+  } catch (e) { toast(e.message, true); }
+}
+
+// escolher painel (alternativa ao arrastar, funciona no celular)
+let pickCb = null;
+function pickPanel(title, cb) {
+  $("pkTitle").textContent = title; pickCb = cb;
+  const g = $("pkGrid"); g.innerHTML = "";
+  for (const n of visiblePanels()) {
+    const p = panelOf(n), ar = areaOf(n);
+    g.append(el("button", { onclick: () => { closeModal("mPick"); pickCb(n); } }, el("b", { text: String(n) + (ar ? " · " + areaLabel(ar) : "") }), p ? p.nome : "(vazio)"));
+  }
+  openModal("mPick");
+}
+
+// ---------------------------------------------------------------- modais
+function openModal(id) { $(id).classList.remove("hidden"); }
+function closeModal(id) { $(id).classList.add("hidden"); }
+document.querySelectorAll(".modal").forEach(m => {
+  m.addEventListener("click", (ev) => { if (ev.target === m || ev.target.hasAttribute("data-close")) m.classList.add("hidden"); });
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") document.querySelectorAll(".modal").forEach(m => m.classList.add("hidden")); });
+
+let editing = null;
+function openEdit(n) {
+  const p = panelOf(n) || { n, nome: "", url: "https://", zoom: 0.67 };
+  editing = n;
+  $("eNum").textContent = String(n);
+  $("eLib").value = "";
+  $("eNome").value = p.nome; $("eUrl").value = p.url; $("eZoom").value = Math.round(Number(p.zoom) * 100);
+  $("eToLib").checked = false;
+  const s = st && st.paineis.find(x => x.n === n);
+  const ar = areaOf(n);
+  $("eAtual").textContent = (s && s.online ? ("Aberto agora na tela: " + s.urlAtual) : "Janela fechada no momento.") +
+    (ar ? ` · Painel mesclado ${areaLabel(ar)} (${ar.escala === "espaco" ? "mais espaço: o zoom vale como está" : "ampliado: na tela o zoom é multiplicado pelo tamanho da área"}).` : "");
+  renderWarns("eWarns", p.url);
+  openModal("mEdit"); $("eUrl").focus();
+}
+$("eLib").addEventListener("change", () => {
+  const it = (cfg.biblioteca || []).find(b => b.id === $("eLib").value); if (!it) return;
+  $("eNome").value = it.nome; $("eUrl").value = it.url; renderWarns("eWarns", it.url);
+});
+$("eUrl").addEventListener("input", () => renderWarns("eWarns", $("eUrl").value));
+$("eSave").onclick = async () => {
+  const n = editing;
+  const body = { nome: $("eNome").value.trim(), url: $("eUrl").value.trim(), zoom: Number($("eZoom").value) / 100 };
+  const toLib = $("eToLib").checked;
+  $("eSave").disabled = true;
+  startBusy(n, "Trocando link…");
+  try {
+    const r = await api("PUT", `/api/paineis/${n}`, body);
+    closeModal("mEdit");
+    if (toLib && !(cfg.biblioteca || []).some(b => b.url === body.url)) {
+      try { await api("POST", "/api/biblioteca", { nome: body.nome, url: body.url }); } catch (e) { toast(e.message, true); }
+    }
+    await loadState();
+    waitScreen(n, /reaberto/.test(r.msg) ? "Reabrindo janela…" : "Carregando…", /reaberto/.test(r.msg) ? 90000 : BUSY_TIMEOUT);
+    poll();
+    const ant = r.anteriores || [];
+    toast(r.msg, false, ant.length ? () => applyLote(ant, "desfazer", "Alteração desfeita.", false) : null);
+  } catch (e) { clearBusy(n); toast(e.message, true); }
+  finally { $("eSave").disabled = false; }
+};
+
+// pergunta generica: texto e/ou escolha de cenario
+let askCb = null;
+function ask({ title, label, value, pick, pickLabel }, cb) {
+  $("askTitle").textContent = title;
+  $("askInWrap").classList.toggle("hidden", !label);
+  $("askSelWrap").classList.toggle("hidden", !pick);
+  if (label) { $("askLabel").textContent = label; $("askInput").value = value || ""; }
+  if (pick) {
+    $("askSelLabel").textContent = pickLabel || "Cenário";
+    const s = $("askSel"); s.innerHTML = "";
+    for (const c of cfg.cenarios || []) s.append(el("option", { value: c.id, text: c.nome }));
+    s.value = cfg.cenarioAtivo || "";
+    s.onchange = () => { if (label) { const c = cfg.cenarios.find(x => x.id === s.value); if (c) $("askInput").value = c.nome; } };
+    if (label) s.onchange();
+  }
+  askCb = cb; openModal("mAsk");
+  (label ? $("askInput") : $("askSel")).focus();
+}
+$("askOk").onclick = async () => {
+  const v = $("askInput").value.trim(), id = $("askSel").value;
+  if (!$("askInWrap").classList.contains("hidden") && !v) return;
+  closeModal("mAsk"); if (askCb) await askCb(v, id);
+};
+$("askInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("askOk").click(); });
+
+// ---------------------------------------------------------------- cenários
+const sig = (arr) => JSON.stringify((arr || []).map(p => [Number(p.n), p.nome, p.url, Number(p.zoom)]).sort((a, b) => a[0] - b[0]));
+function renderScenarios() {
+  const box = $("chips"); box.innerHTML = "";
+  const modified = (c) => sig(c.paineis) !== sig(cfg.paineis) || mosSig(c.mosaico) !== mosSig(cfg.mosaico);
+  for (const c of cfg.cenarios || []) {
+    const active = c.id === cfg.cenarioAtivo, mod = active && modified(c);
+    const b = el("button", { class: "chip" + (active ? " active" : "") + (mod ? " mod" : ""),
+      text: c.nome + (mod ? " (modificado)" : ""),
+      title: active ? (mod ? "Cenário ativo, mas a parede foi alterada. Clique para voltar ao cenário." : "Cenário ativo") : "Clique para aplicar na parede" });
+    if (can("operador")) b.onclick = () => applyScenario(c); else b.disabled = !active;
+    box.append(b);
+  }
+}
+async function applyScenario(c) {
+  const changes = (c.paineis || []).filter(np => { const p = panelOf(Number(np.n)); return !p || p.url !== np.url || Number(p.zoom) !== Number(np.zoom) || p.nome !== np.nome; });
+  const mosChange = mosSig(c.mosaico) !== mosSig(cfg.mosaico);
+  if (!changes.length && !mosChange) { toast(`A parede já está igual ao cenário "${c.nome}".`); return; }
+  if ((changes.length > 3 || mosChange) && !confirm(`Aplicar o cenário "${c.nome}"? ` +
+      (changes.length ? `${changes.length} painéis vão mudar` : "Os links não mudam") +
+      (mosChange ? (changes.length ? " e o mosaico também (algumas janelas reabrem)." : ", mas o mosaico muda (algumas janelas reabrem).") : "."))) return;
+  const ids = changes.map(p => Number(p.n)).filter(n => $("card" + n));
+  for (const n of ids) startBusy(n, "Trocando link…");
+  try {
+    const r = await api("POST", `/api/cenarios/${c.id}/aplicar`, {});
+    for (const n of ids) waitScreen(n);
+    await afterWallChange(r, [], "Abrindo janela…");
+    const ant = r.anteriores || [];
+    toast(r.msg, false, r.desfazer ? () => undoSnap(r.desfazer) : (ant.length ? () => applyLote(ant, "desfazer", "Cenário desfeito.", false) : null));
+  } catch (e) { for (const n of ids) clearBusy(n); toast(e.message, true); }
+}
+$("scnNew").onclick = () => ask({ title: "Novo cenário", label: "Nome (o cenário é criado com a parede atual)" }, async (nome) => {
+  try { const r = await api("POST", "/api/cenarios", { nome }); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
+});
+$("scnSave").onclick = () => ask({ title: "Salvar a parede atual em um cenário", pick: true, pickLabel: "Sobrescrever o cenário" }, async (_, id) => {
+  try { const r = await api("PUT", `/api/cenarios/${id}`, { salvarAtual: true }); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
+});
+$("scnRename").onclick = () => ask({ title: "Renomear cenário", pick: true, label: "Novo nome" }, async (nome, id) => {
+  try { const r = await api("PUT", `/api/cenarios/${id}`, { nome }); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
+});
+$("scnDel").onclick = () => ask({ title: "Excluir cenário (a parede não muda)", pick: true }, async (_, id) => {
+  const c = cfg.cenarios.find(x => x.id === id); if (!c || !confirm(`Excluir o cenário "${c.nome}"?`)) return;
+  try { const r = await api("DELETE", `/api/cenarios/${id}`); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
+});
+
+// ---------------------------------------------------------------- parede inteira
+async function wallAction(acao, body, busyLabel, timeout = 150000) {
+  try {
+    const r = await api("POST", `/api/parede/${acao}`, body || {});
+    toast(r.msg);
+    if (busyLabel) for (const n of visiblePanels()) { startBusy(n, busyLabel); waitScreen(n, busyLabel, timeout); }
+    await poll();
+  } catch (e) { toast(e.message, true); }
+}
+$("btnReloadAll").onclick = () => wallAction("recarregar", {}, "Recarregando…", 60000);
+$("btnReopenAll").onclick = () => { if (confirm(`Reabrir as ${visiblePanels().length} janelas? A parede apaga por até 1 minuto.`)) wallAction("reabrir", {}, "Reabrindo janela…"); };
+document.querySelectorAll("#menuPause button").forEach(b => b.addEventListener("click", () => {
+  const min = Number(b.dataset.min);
+  const txt = min ? `por ${min >= 60 ? min / 60 + " h" : min + " min"}` : "até alguém religar";
+  if (!confirm(`Pausar a parede ${txt}? Todas as telas ficam apagadas.`)) return;
+  for (let n = 0; n < N_PANELS; n++) clearBusy(n);
+  wallAction("pausar", { minutos: min });
+}));
+const resume = () => wallAction("religar", {}, "Abrindo janela…");
+$("btnResume").onclick = resume; $("btnResume2").onclick = resume;
+
+// ---------------------------------------------------------------- manutenção automática
+$("btnManut").onclick = async () => {
+  try {
+    const r = await api("GET", "/api/manutencao");
+    $("mnAuto").checked = !!r.config.autoCorrigir;
+    $("mnMin").value = r.config.congeladoMin;
+    $("mnHora").value = r.config.reabrirHora || "";
+    const ro = !can("admin");
+    ["mnAuto", "mnMin", "mnHora"].forEach(i => $(i).disabled = ro);
+    $("mnInfo").textContent = (r.proxima ? `Próxima reabertura: ${new Date(r.proxima).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.` : "Reabertura diária desligada.") +
+      (r.reabertoEm ? ` Última: ${r.reabertoEm.split("-").reverse().join("/")}.` : "") + (ro ? " Só administradores alteram." : "");
+    $("mnEv").textContent = (r.eventos || []).join("\n") || "(nenhuma desde que o gerenciador iniciou)";
+    openModal("mManut");
+  } catch (e) { toast(e.message, true); }
+};
+$("mnSave").onclick = async () => {
+  try {
+    const r = await api("PUT", "/api/manutencao", { autoCorrigir: $("mnAuto").checked, congeladoMin: Number($("mnMin").value), reabrirHora: $("mnHora").value });
+    toast(r.msg); closeModal("mManut"); poll();
+  } catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- minha senha
+$("btnPwd").onclick = () => { ["pA", "pN", "pC"].forEach(i => $(i).value = ""); openModal("mPwd"); $("pA").focus(); };
+$("pSave").onclick = async () => {
+  if ($("pN").value !== $("pC").value) { toast("As senhas novas não conferem.", true); return; }
+  try { await api("POST", "/api/me/senha", { atual: $("pA").value, nova: $("pN").value }); toast("Senha alterada."); closeModal("mPwd"); }
+  catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- usuários
+$("btnUsers").onclick = async () => { await loadUsers(); openModal("mUsers"); };
+async function loadUsers() {
+  let list = [];
+  try { list = await api("GET", "/api/usuarios"); } catch (e) { toast(e.message, true); return; }
+  const tb = $("uBody"); tb.innerHTML = "";
+  for (const u of list) {
+    const nome = el("input", { value: u.nome || "", maxlength: "60" });
+    const papel = el("select", {}, ...["admin", "operador", "visualizador"].map(r => { const o = el("option", { value: r, text: r }); if (r === u.papel) o.selected = true; return o; }));
+    const ativo = el("input", { type: "checkbox", style: "width:auto" }); ativo.checked = !!u.ativo;
+    const senha = el("input", { type: "password", placeholder: "(manter)", autocomplete: "new-password" });
+    const salvar = el("button", { class: "small primary", text: "Salvar", onclick: async () => {
+      const body = { nome: nome.value.trim(), papel: papel.value, ativo: ativo.checked };
+      if (senha.value) body.senha = senha.value;
+      try { const r = await api("PUT", `/api/usuarios/${encodeURIComponent(u.usuario)}`, body); toast(r.msg); await loadUsers(); }
+      catch (e) { toast(e.message, true); }
+    }});
+    const excluir = el("button", { class: "small danger", text: "Excluir", onclick: async () => {
+      if (!confirm(`Excluir o usuário "${u.usuario}"?`)) return;
+      try { const r = await api("DELETE", `/api/usuarios/${encodeURIComponent(u.usuario)}`); toast(r.msg); await loadUsers(); }
+      catch (e) { toast(e.message, true); }
+    }});
+    if (u.usuario === me.usuario) excluir.disabled = true;
+    tb.append(el("tr", {}, el("td", { text: u.usuario }), el("td", {}, nome), el("td", {}, papel), el("td", {}, ativo), el("td", {}, senha), el("td", { class: "act" }, salvar, " ", excluir)));
+  }
+}
+$("nuAdd").onclick = async () => {
+  const body = { usuario: $("nuU").value.trim(), nome: $("nuN").value.trim(), papel: $("nuP").value, senha: $("nuS").value };
+  try { const r = await api("POST", "/api/usuarios", body); toast(r.msg); ["nuU", "nuN", "nuS"].forEach(i => $(i).value = ""); await loadUsers(); }
+  catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- auditoria
+async function loadAudit() {
+  try { const lines = await api("GET", "/api/auditoria"); $("auditPre").textContent = lines.join("\n") || "(vazio)"; }
+  catch (e) { toast(e.message, true); }
+}
+$("btnAudit").onclick = async () => { await loadAudit(); openModal("mAudit"); };
+$("auditRefresh").onclick = loadAudit;
+
+// ---------------------------------------------------------------- início
+(async () => {
+  try { me = await api("GET", "/api/me"); startApp(); }
+  catch (_) { showLogin(); }
+})();
+</script>
+</body>
+</html>
