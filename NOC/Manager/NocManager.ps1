@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.5.0'
+$Version     = '1.5.1'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -164,7 +164,9 @@ function Get-Config {
     foreach ($p in @($c.paineis) + @($c.cenarios | ForEach-Object { $_.paineis })) {
       if ($p -and $p.url -and -not $seen.ContainsKey([string]$p.url)) {
         $seen[[string]$p.url] = 1
-        $lib += [pscustomobject]@{ id = (New-LibId); nome = [string]$p.nome; url = [string]$p.url }
+        # id derivado do link (e nao aleatorio): enquanto ninguem salvar, cada leitura gera os MESMOS ids,
+        # senao o id que a pagina mostra nao existe mais na hora de remover/editar (erro 'Item inexistente')
+        $lib += [pscustomobject]@{ id = (Get-StableLibId ([string]$p.url)); nome = [string]$p.nome; url = [string]$p.url }
       }
     }
     $c | Add-Member -NotePropertyName biblioteca -NotePropertyValue $lib
@@ -232,6 +234,11 @@ function Get-Health {
   }
 }
 function New-LibId { return ('b' + ([guid]::NewGuid().ToString('N').Substring(0, 10))) }
+function Get-StableLibId([string]$Url) {
+  $sha = [Security.Cryptography.SHA1]::Create()
+  try { $h = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Url)) } finally { $sha.Dispose() }
+  return ('b' + (-join ($h[0..4] | ForEach-Object { $_.ToString('x2') })))
+}
 function Save-Config($c) { Write-JsonFile $CfgFile $c }
 
 # ---------------------------------------------------------------- mosaico (paineis mesclados)
