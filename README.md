@@ -45,13 +45,15 @@ São **dois passos**: um comando no PC da parede e o resto pelo navegador. Tempo
 
 ### Passo 1. Rodar o comando de instalação
 
-No PC da parede, abra o **PowerShell como Administrador** (botão direito no menu Iniciar → *Terminal (Admin)* ou *Windows PowerShell (Admin)*) e cole:
+No PC da parede, abra o **Prompt de Comando** ou o **PowerShell como Administrador** (botão direito no menu Iniciar → *Terminal (Admin)*) e cole esta linha inteira:
 
-```powershell
-irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex"
 ```
 
-Também funciona por **SSH** numa sessão de administrador.
+Também funciona por **SSH** numa sessão de administrador. A mesma linha serve no `cmd` e no PowerShell. A parte do `Tls12` é necessária no Windows Server 2019 e em Windows 10 mais antigos; sem ela o GitHub recusa a conexão.
+
+O comando **nunca pede nada no terminal**: tudo que precisa de resposta é feito no navegador. Ele precisa de um Release **v1.6.0 ou mais novo**; se o último Release for mais antigo, ele avisa e para sem mudar nada.
 
 O comando baixa a versão mais recente da aba [Releases](../../releases), copia para `C:\NOC`, cria o certificado, libera o firewall só para as redes internas e sobe o servidor web. No fim ele mostra algo assim:
 
@@ -108,8 +110,8 @@ Tem o zip, mas quer o caminho do assistente? Rode `$env:SCRY_ZIP = 'C:\caminho\S
 
 Rode **o mesmo comando** do passo 1, como Administrador:
 
-```powershell
-irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex"
 ```
 
 Ele percebe que o Scry já está instalado e só atualiza: faz backup em `C:\NOC\Manager\backups`, troca o código, reinicia e confere se a versão nova respondeu. **Painéis, usuários e auditoria são mantidos.** Com o pacote, dá no mesmo: extraia o zip novo **fora** de `C:\NOC` e dê dois cliques no `INSTALAR.cmd`.
@@ -136,7 +138,9 @@ Opções avançadas do instalador (portas, redes permitidas, sem HTTP): [NOC/INS
 
 | Sintoma | O que fazer |
 |---|---|
-| "Abra o PowerShell como Administrador" | o comando precisa de uma janela aberta com *Executar como administrador* |
+| "Abra o PowerShell como Administrador" | o comando precisa de uma janela aberta com *Executar como administrador* (ou SSH com um usuário administrador) |
+| `'irm' não é reconhecido como um comando` | você colou só o `irm …` no Prompt de Comando; use a linha completa do passo 1, que começa com `powershell` |
+| "O pacote baixado é a v1.5.x…" | o último Release é anterior à 1.6.0; crie um Release novo e rode de novo |
 | "O Release … não tem o pacote" | o GitHub Actions ainda está gerando o zip; espere 1 minuto e rode de novo |
 | "Código inválido ou vencido" | rode o comando de instalação de novo para gerar outro código |
 | Logon automático não entra sozinho | confira a senha do usuário; contas com *Windows Hello* exigido podem bloquear o logon automático (desative em *Contas → Opções de entrada*) |
@@ -178,7 +182,7 @@ O pacote sai em `dist\Scry-vX.Y.Z.zip`. A versão vem de `$Version` em `NOC/Mana
 
 | Pasta/arquivo | O que tem |
 |---|---|
-| `install.ps1` | instalação/atualização com um comando (`irm … \| iex`) |
+| `install.ps1` | instalação/atualização com um comando (passo 1) |
 | `INSTALAR.cmd` | instalar ou atualizar pelo pacote, com dois cliques |
 | `Build-Pacote.ps1` | gera o `.zip` de instalação |
 | `NOC/` | o programa, que vai para `C:\NOC` no PC da parede ([uso e manutenção](NOC/LEIAME.md), [instalação detalhada](NOC/INSTALAR.md)) |

@@ -1,6 +1,11 @@
-# Scry - instalacao com UM comando (PowerShell como Administrador, no PC da parede ou por SSH):
+# Scry - instalacao com UM comando, como Administrador, no PC da parede ou por SSH.
+# Funciona igual no Prompt de Comando (cmd), no PowerShell e no SSH do Windows:
 #
-#   irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
+#   powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex"
+#
+# (o Tls12 e necessario no Windows Server 2019/Windows 10 antigos, senao o GitHub recusa a conexao)
+#
+# Nunca pede nada no terminal: tudo que precisa de resposta e feito no navegador.
 #
 # O que faz:
 #   - Baixa o pacote do ultimo Release do GitHub (Scry-vX.Y.Z.zip).
@@ -25,7 +30,7 @@
   function Fail([string]$t) { Write-Host ""; Write-Host "ERRO: $t" -ForegroundColor Red; throw "Scry: instalacao interrompida." }
   function Run-Ps([string]$File, [string[]]$ArgList) {
     # sempre no Windows PowerShell 5.1 (os scripts do Scry sao para ele), mesmo se este comando rodar no PS 7
-    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $File @ArgList | Out-Host
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $File @ArgList | Out-Host
     return $LASTEXITCODE
   }
 
@@ -64,6 +69,11 @@
     Get-ChildItem $pkg -Recurse -File | Unblock-File
     $ver = ([regex]::Match([IO.File]::ReadAllText((Join-Path $src 'Manager\NocManager.ps1')), "\`$Version\s*=\s*'([^']+)'")).Groups[1].Value
     Say "      Scry v$ver"
+    # pacotes anteriores a 1.6.0 nao tem o modo sem perguntas (-Setup) e pediriam a senha no terminal
+    if ([IO.File]::ReadAllText((Join-Path $src 'Install-NocManager.ps1')) -notmatch '\[switch\]\$Setup') {
+      Fail ("O pacote baixado e a v$ver, que ainda nao tem a instalacao pelo navegador (precisa da v1.6.0 ou mais nova). " +
+            "Crie o Release v1.6.0 (ou mais novo) em https://github.com/$Repo/releases/new e rode o comando de novo.")
+    }
 
     $installed = (Get-ScheduledTask -TaskName 'NOC-Manager' -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $Root 'Manager\NocManager.ps1'))
 
@@ -107,7 +117,7 @@
 
     Write-Host ""
     if ($pending) {
-      $out = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'Manager\NocManager.ps1') -Root $Root -NovoCodigo
+      $out = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $Root 'Manager\NocManager.ps1') -Root $Root -NovoCodigo
       $code = ($out | Where-Object { $_ -like 'CODIGO=*' } | Select-Object -First 1) -replace '^CODIGO=', ''
       if (-not $code) { Fail "Nao consegui gerar o codigo de configuracao: $out" }
       Say "[4/4] Pronto! Agora termine a configuracao pelo navegador, de qualquer PC da rede:" Green
