@@ -12,3 +12,5 @@ NOC/backups/
 *.tmp
 dist/
 NOC/paineis.json
+NOC/deploy.log
+NOC/start-wall.log

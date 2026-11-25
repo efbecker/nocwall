@@ -13,6 +13,7 @@ C:\NOC\
   paineis.exemplo.json      modelo usado só na primeira instalação
   layout.json               telas e blocos reais, gravado pelo Start-Wall (o gerenciador desenha a grade com ele)
   pausado.json              existe só enquanto a parede está pausada
+  Deploy-Scry.ps1           instalação/atualização em um passo (chamado pelo INSTALAR.cmd do pacote)
   Install-NocManager.ps1    instalador (primeira vez, ou para recriar tarefas, certificado e firewall)
   Update-NocManager.ps1     atualização com backup e reinício (dia a dia)
   Test-NocManager.ps1       teste automático (roda de qualquer PC)
@@ -26,8 +27,12 @@ C:\NOC\
 ## Instalação (primeira vez, PowerShell como Administrador)
 
 > Passo a passo completo para um PC novo (pré-requisitos, credencial do Grafana, DNS e certificado): **[INSTALAR.md](INSTALAR.md)**.
+>
+> **Mais simples:** extraia o pacote em qualquer pasta e dê dois cliques em `INSTALAR.cmd`. Ele copia para `C:\NOC`, pergunta o necessário e roda o instalador abaixo.
 
-1. Extraia o pacote em `C:\NOC`.
+Forma manual:
+
+1. Extraia o pacote e copie a pasta `NOC` para `C:\NOC`.
 2. Rode o instalador, informando o usuário que fica logado na parede e a rede de gestão:
    ```powershell
    powershell -ExecutionPolicy Bypass -File C:\NOC\Install-NocManager.ps1 -WallUser NOME_DO_USUARIO
@@ -56,7 +61,7 @@ C:\NOC\
 
 ## Atualização (dia a dia)
 
-Extraia o pacote novo **fora** de `C:\NOC` (por exemplo, em `C:\Temp\noc-v1.2`) e rode como Administrador:
+Extraia o pacote novo **fora** de `C:\NOC` (por exemplo, em `C:\Temp\noc-v1.2`) e dê dois cliques no `INSTALAR.cmd` dele. Ele detecta que o Scry já está instalado e roda a atualização abaixo. Ou rode direto, como Administrador:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\Temp\noc-v1.2\NOC\Update-NocManager.ps1 -AplicarParede

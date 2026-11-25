@@ -2,13 +2,15 @@
 
 Guia para instalar o Scry num PC de video wall novo, do zero. Tempo estimado: 30 minutos, mais o ajuste dos painéis.
 
+> **Caminho rápido:** extraia o pacote e dê dois cliques em `INSTALAR.cmd` (veja o [README](../README.md#instalação-passo-a-passo-deploy)). Ele faz os passos 2 a 4 abaixo sozinho, perguntando o necessário. Este guia mostra o mesmo processo em detalhe e a forma manual, para quem precisa de opções avançadas.
+
 > **Antes de começar, confira:** nesta versão o Scry controla uma parede de **exatamente 10 painéis de 1920×1080**. Cada saída 4K do Windows vira 4 painéis e cada saída 1080p vira 1. A parede do NOC (2 telas 4K + 2 de 1080p) dá os 10. Se o novo PC tiver outro arranjo, ou outra quantidade de telas, fale com o responsável pelo projeto antes: isso exige ajuste no código.
 
 ## O que você precisa ter em mãos
 
 | Item | Onde conseguir |
 |---|---|
-| Pacote `Scry-vX.Y.Z.zip` (a versão mais recente) | repositório privado `github.com/armazemcloud/Scry` (aba *Tags* → baixar o .zip) ou com o responsável pelo projeto |
+| Pacote `Scry-vX.Y.Z.zip` (a versão mais recente) | aba *Releases* do repositório (gerado pelo GitHub Actions ou por `Build-Pacote.ps1`) ou com o responsável pelo projeto |
 | Conta de administrador local do PC | TI |
 | Usuário Windows que fica logado na parede (logon automático) | criar no PC, por exemplo `parede` |
 | Usuário do Grafana só leitura para a parede | administrador do Grafana |
@@ -28,8 +30,10 @@ Guia para instalar o Scry num PC de video wall novo, do zero. Tempo estimado: 30
 
 ## 2. Copiar o pacote
 
-1. Extraia o `.zip` em `C:\`. Ele já traz a pasta `NOC`, e o resultado deve ser `C:\NOC\Install-NocManager.ps1`, `C:\NOC\Manager\...` e assim por diante.
+1. Botão direito no `.zip` → *Propriedades* → marque *Desbloquear* (se aparecer). Depois, *Extrair tudo…* em qualquer pasta.
 2. Copie o `armazem_cloud.pfx` para uma pasta temporária, por exemplo `C:\temp\armazem.pfx`. Ele é apagado no fim.
+
+Com o `INSTALAR.cmd` (passo 4) a cópia para `C:\NOC` é automática. Na forma manual, copie a pasta `NOC` do pacote para `C:\`, de modo que exista `C:\NOC\Install-NocManager.ps1`, `C:\NOC\Manager\...` e assim por diante.
 
 ## 3. Credencial do Grafana (logado como o usuário da parede)
 
@@ -41,9 +45,15 @@ Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\NOC
 
 A janela pede a senha do Grafana. O arquivo fica criptografado e só esse usuário, neste PC, consegue usá-lo. Se for criado por outro usuário, o login automático do Grafana não funciona.
 
-## 4. Instalar (PowerShell como Administrador)
+## 4. Instalar
 
-Troque o nome do PC, o usuário da parede e o endereço:
+**Forma simples:** dois cliques em `INSTALAR.cmd` (na pasta extraída) → *Sim* no aviso do Windows. Ele confere os pré-requisitos, copia para `C:\NOC` e pergunta o usuário da parede, o endereço e o caminho do PFX. Se você estiver logado como o usuário da parede, ele também oferece gravar a credencial do Grafana (passo 3). Para usar sem perguntas:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\NOC\Deploy-Scry.ps1 -SemPerguntas -WallUser "NOME-DO-PC\parede" -HostName scry-jlle.armazem.cloud -PfxPath C:\temp\armazem.pfx
+```
+
+**Forma manual (PowerShell como Administrador),** com acesso a todas as opções da tabela abaixo. Troque o nome do PC, o usuário da parede e o endereço:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\NOC\Install-NocManager.ps1 `
@@ -105,6 +115,6 @@ Prefira links do Grafana com `refresh=30s` ou mais e com `&kiosk`. A interface a
 
 ## Depois de instalado
 
-- **Atualizar** para uma versão nova: extraia o pacote novo fora de `C:\NOC` e rode `Update-NocManager.ps1` (detalhes no `LEIAME.md`).
+- **Atualizar** para uma versão nova: extraia o pacote novo fora de `C:\NOC` e dê dois cliques no `INSTALAR.cmd` dele (ele detecta a instalação e roda o `Update-NocManager.ps1`; detalhes no `LEIAME.md`).
 - **Renovar o certificado** quando o curinga vencer: rode de novo o passo 4 com o PFX novo.
 - **Manual de uso** e solução de problemas do dia a dia: `C:\NOC\LEIAME.md`.
