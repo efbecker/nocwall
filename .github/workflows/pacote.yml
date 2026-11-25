@@ -1,0 +1,51 @@
+# Gera o pacote de instalacao (Scry-vX.Y.Z.zip).
+# - Em todo push/PR: confere os scripts e deixa o zip em "Artifacts" da execucao.
+# - Ao criar uma tag vX.Y.Z: publica o zip na aba "Releases" do repositorio.
+name: Pacote Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pacote:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir sintaxe e codificacao dos scripts (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $erros = 0
+          foreach ($f in Get-ChildItem -Recurse -Filter *.ps1) {
+            $tokens = $null; $parse = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$parse)
+            foreach ($e in $parse) { Write-Host "::error file=$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $erros++ }
+            if ([IO.File]::ReadAllBytes($f.FullName) | Where-Object { $_ -gt 127 }) {
+              Write-Host "::error file=$($f.Name)::arquivo .ps1 precisa ser ASCII (PowerShell 5.1 le UTF-8 sem BOM como ANSI)"; $erros++
+            }
+          }
+          if ($erros) { exit 1 }
+          Write-Host "Scripts OK"
+
+      - name: Gerar pacote
+        shell: powershell
+        run: .\Build-Pacote.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scry-pacote
+          path: dist/*.zip
+
+      - name: Publicar na aba Releases (so em tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
