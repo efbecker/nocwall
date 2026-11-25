@@ -4,6 +4,7 @@ NOC/Manager/setup.json
 NOC/Manager/audit.log
 NOC/Manager/diag.log*
 NOC/grafana.cred
+NOC/grafana.json
 NOC/profiles/
 NOC/run-hidden.vbs
 NOC/pausado.json

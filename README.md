@@ -74,6 +74,7 @@ O comando baixa a versão mais recente da aba [Releases](../../releases), copia 
    - **Administrador do Scry:** usuário e senha (mínimo de 10 caracteres). **Guarde no cofre de senhas da equipe.**
    - **Usuário da parede:** escolha na lista o usuário do Windows que fica logado nas TVs.
    - **Logon automático (opcional):** marque para o Windows entrar sozinho com esse usuário quando o PC ligar. Ele pede a senha desse usuário, confere e guarda protegida pelo Windows. Pode também reiniciar o PC na hora para testar.
+   - **Login do Grafana (opcional):** endereço, usuário e senha, com botão **Testar conexão** (veja abaixo).
 4. Clique em **Concluir configuração**. O assistente some e a página passa a ser o Scry normal, com login.
 
 Depois disso:
@@ -83,16 +84,17 @@ Depois disso:
 - Ajuste os dashboards (**Editar** ou arrastando da **Biblioteca**), salve o arranjo em **Gerenciar → Salvar a parede atual em um cenário** e crie os usuários da equipe em **Conta → Usuários**.
 - **Reinicie o PC uma vez** para confirmar que tudo volta sozinho.
 
-### Credencial do Grafana (só se os dashboards pedem login)
+### Login do Grafana (só se os dashboards pedem login)
 
-Ela fica criptografada e **só o usuário da parede consegue criar e ler**, por isso não dá para fazer pelo navegador:
+Configure pelo navegador, no próprio assistente (passo 2) ou depois em **Conta → Login do Grafana** (só administradores):
 
-1. Entre no Windows **como o usuário da parede**.
-2. Abra o **PowerShell** normal e rode, trocando `USUARIO_GRAFANA`:
-   ```powershell
-   Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\NOC\grafana.cred
-   ```
-3. Digite a senha do Grafana na janela que abrir.
+1. Informe o **endereço do Grafana** (ex.: `https://grafana.suaempresa.com`), um **usuário só leitura** e a **senha**.
+2. Clique em **Testar conexão**: o Scry faz o mesmo login que a parede vai fazer e diz se o Grafana aceitou.
+3. **Salvar**. Os painéis que estiverem na tela de login entram sozinhos em até 1 minuto.
+
+A senha fica guardada protegida pelo Windows (DPAPI) em `C:\NOC\grafana.json`, que só o sistema, os administradores e o usuário da parede conseguem ler. Ela nunca é mostrada de volta na tela: para trocar, digite uma nova. A senha só é enviada para o endereço configurado.
+
+> Instalações antigas que usavam o `grafana.cred` (criado pelo PowerShell) continuam funcionando. Quando o login é salvo pela interface, ele passa a valer no lugar do arquivo antigo.
 
 ### Outra forma: pacote com dois cliques (sem internet, ou com nome e certificado próprios)
 
@@ -149,7 +151,7 @@ Opções avançadas do instalador (portas, redes permitidas, sem HTTP): [NOC/INS
 | Navegador não acha o endereço | falta o registro no DNS interno, ou ele aponta para o IP errado |
 | Navegador avisa sobre o certificado | o certificado é autoassinado; instale um confiável com `INSTALAR.cmd -Reinstalar` e um `.pfx` |
 | "Acesso permitido somente pela rede interna" | o PC de quem acessa está numa rede fora das liberadas (`-AllowFrom`) |
-| Painéis abrem na tela de login do Grafana | refaça a [credencial do Grafana](#credencial-do-grafana-só-se-os-dashboards-pedem-login) logado como o usuário da parede |
+| Painéis abrem na tela de login do Grafana | em **Conta → Login do Grafana**, use **Testar conexão**; confira endereço, usuário e senha |
 | Janelas do Chrome não abrem | confira o logon automático e se a tarefa `NOC-VideoWall` existe no *Agendador de Tarefas* |
 | Página não abre | veja `C:\NOC\Manager\diag.log` e se a tarefa `NOC-Manager` está *Em execução* |
 

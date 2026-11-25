@@ -178,6 +178,9 @@ $tRep   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -Repetitio
 $pWall  = New-ScheduledTaskPrincipal -UserId $WallUser -LogonType Interactive -RunLevel Limited
 $sWall  = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName 'NOC-VideoWall' -Action $aWall -Trigger @($tLogon, $tRep) -Principal $pWall -Settings $sWall -Force | Out-Null
+# login do Grafana salvo pela interface: so SYSTEM, Administradores e o usuario da parede leem
+$gFile = Join-Path $Root 'grafana.json'
+if (Test-Path $gFile) { & icacls $gFile /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' "${WallUser}:R" | Out-Null }
 }
 
 # 5b. Gerenciador: SYSTEM, no boot e a cada 5 min, sem limite de tempo
