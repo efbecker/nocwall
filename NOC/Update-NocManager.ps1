@@ -36,7 +36,7 @@ $BackupDir = Join-Path $Root 'Manager\backups'
 # arquivos de codigo (caminhos relativos a C:\NOC); dados de producao ficam de fora
 $CodeFiles = @(
   'Start-Wall.ps1', 'Install-NocManager.ps1', 'Update-NocManager.ps1', 'Test-NocManager.ps1', 'Deploy-Scry.ps1',
-  'LEIAME.md', 'INSTALAR.md', 'paineis.exemplo.json', 'Manager\NocManager.ps1', 'Manager\www\index.html'
+  'LEIAME.md', 'INSTALAR.md', 'paineis.exemplo.json', 'Manager\NocManager.ps1', 'Manager\www\index.html', 'Manager\www\setup.html'
 )
 $DataFiles = @('paineis.json', 'Manager\users.json', 'Manager\audit.log')
 

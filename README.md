@@ -29,103 +29,90 @@ Tudo fica em `C:\NOC`.
 
 ---
 
-## Instalação passo a passo (deploy)
+## Instalação (deploy)
 
-Tempo estimado: 20 a 30 minutos. Você só vai precisar dar **dois cliques num arquivo** e responder algumas perguntas.
-
-### Antes de começar: o que ter em mãos
-
-| Item | Observação |
-|---|---|
-| Um PC com **Windows 10 ou 11** ligado às TVs | com o **Google Chrome** instalado |
-| Acesso de **Administrador** nesse PC | o instalador pede permissão |
-| Um **usuário do Windows para a parede** (ex.: `parede`) | é ele que fica logado mostrando as TVs |
-| Um **endereço** para o Scry (ex.: `scry.suaempresa.local`) | alguém da TI cria esse nome no DNS interno apontando para o IP do PC |
-| *(opcional)* Certificado `.pfx` que cubra esse endereço e a senha dele | sem ele, o Scry gera um certificado próprio e o navegador mostra um aviso |
-| *(opcional)* Usuário **só leitura do Grafana** | só se os dashboards pedirem login |
+São **dois passos**: um comando no PC da parede e o resto pelo navegador. Tempo estimado: 15 minutos.
 
 > **Importante:** esta versão foi feita para uma parede de **exatamente 10 painéis de 1920×1080**. Cada TV 4K conta como 4 painéis e cada TV Full HD conta como 1. Exemplo: 2 TVs 4K + 2 TVs Full HD = 10 painéis. Outro arranjo exige ajuste no código.
 
-### Passo 1. Preparar o PC
+### Antes de começar
 
-1. Ligue todas as TVs. Em **Configurações → Sistema → Tela**:
-   - arrume as telas na mesma posição em que estão na parede;
-   - deixe a **escala em 100%** em todas;
-   - use a resolução nativa (4K = 3840×2160, Full HD = 1920×1080).
-2. **Logon automático** do usuário da parede: aperte `Win + R`, digite `netplwiz`, desmarque *"Os usuários devem digitar um nome de usuário e uma senha"* e informe o usuário da parede.
-3. **Energia:** em **Configurações → Sistema → Energia**, coloque *Nunca* para desligar a tela e para suspender. Desative a proteção de tela.
-4. Se houver outro programa de video wall no PC, feche e tire da inicialização, ou eles vão brigar pelas telas.
+1. Um PC com **Windows 10 ou 11**, ligado às TVs, com o **Google Chrome** instalado.
+2. Um **usuário do Windows para a parede** (ex.: `parede`). É ele que fica logado mostrando as TVs.
+3. Com as TVs ligadas, em **Configurações → Sistema → Tela**: arrume as telas na mesma posição da parede, deixe a **escala em 100%** e use a resolução nativa (4K = 3840×2160, Full HD = 1920×1080).
+4. Em **Configurações → Sistema → Energia**, coloque *Nunca* para desligar a tela e para suspender.
+5. Se houver outro programa de video wall no PC, feche e tire da inicialização.
 
-### Passo 2. Baixar o pacote
+### Passo 1. Rodar o comando de instalação
 
-Baixe o arquivo **`Scry-vX.Y.Z.zip`** mais recente na aba **[Releases](../../releases)** deste repositório.
+No PC da parede, abra o **PowerShell como Administrador** (botão direito no menu Iniciar → *Terminal (Admin)* ou *Windows PowerShell (Admin)*) e cole:
 
-> Ainda não tem Release? Veja [Gerar o pacote](#gerar-o-pacote-para-quem-mantém-o-projeto) mais abaixo.
-
-### Passo 3. Extrair
-
-1. Clique com o botão direito no `.zip` → **Propriedades** → marque **Desbloquear** (se aparecer) → **OK**. Isso evita o aviso "O Windows protegeu o computador".
-2. Botão direito no `.zip` → **Extrair tudo…** → pode ser em qualquer pasta (por exemplo, `Downloads`).
-
-Dentro da pasta extraída você vai ver:
-
-```
-Scry-vX.Y.Z\
-  INSTALAR.cmd   <- é este que você vai usar
-  README.md
-  NOC\
+```powershell
+irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
 ```
 
-### Passo 4. Instalar com dois cliques
+Também funciona por **SSH** numa sessão de administrador.
 
-1. Dê **dois cliques em `INSTALAR.cmd`**.
-2. O Windows pergunta se o programa pode fazer alterações: clique em **Sim**.
-3. Responda as perguntas. Apertar **Enter** aceita o valor sugerido entre colchetes:
+O comando baixa a versão mais recente da aba [Releases](../../releases), copia para `C:\NOC`, cria o certificado, libera o firewall só para as redes internas e sobe o servidor web. No fim ele mostra algo assim:
 
-| Pergunta | O que responder |
-|---|---|
-| Usuário do Windows que fica logado na parede | o usuário da parede, ex.: `NOME-DO-PC\parede` |
-| Endereço (HostName) | o nome criado no DNS, ex.: `scry.suaempresa.local` |
-| Caminho do .pfx | o caminho do certificado, ex.: `C:\temp\cert.pfx`, ou **Enter** para gerar um autoassinado |
-| Gravar a credencial do Grafana agora | só aparece se você estiver logado como o usuário da parede |
-| Continuar | confira o resumo e aperte **Enter** |
-| Senha do usuário `admin` do Scry | mínimo de 10 caracteres. **Guarde no cofre de senhas da equipe.** |
-| Senha do PFX | só se você informou um `.pfx` |
+```
+[4/4] Pronto! Agora termine a configuração pelo navegador, de qualquer PC da rede:
 
-No fim aparece **"Scry instalado! Acesse https://…"** e o navegador abre a página.
+        https://192.168.0.40
 
-O `INSTALAR.cmd` copia tudo para `C:\NOC` sozinho, confere os pré-requisitos e grava um registro em `C:\NOC\deploy.log`. Depois disso você pode apagar a pasta extraída e o `.pfx` temporário.
+        Código de instalação:  K7QM-3XPA
+        (vale por 24 horas; rodar este comando de novo gera outro)
+```
 
-### Passo 5. Credencial do Grafana (só se os dashboards pedem login)
+### Passo 2. Terminar pelo navegador
 
-Ela fica criptografada e **só o usuário da parede consegue criar e ler**. Se o instalador não gravou no passo 4, faça assim:
+1. De qualquer PC da rede, abra o endereço mostrado (`https://IP-DO-PC`). O navegador avisa sobre o certificado, porque ele é autoassinado: clique em **Avançado → Continuar**.
+2. Digite o **código de instalação**.
+3. O assistente mostra o que encontrou no PC (nome, IP, Chrome e telas) e pede:
+   - **Administrador do Scry:** usuário e senha (mínimo de 10 caracteres). **Guarde no cofre de senhas da equipe.**
+   - **Usuário da parede:** escolha na lista o usuário do Windows que fica logado nas TVs.
+   - **Logon automático (opcional):** marque para o Windows entrar sozinho com esse usuário quando o PC ligar. Ele pede a senha desse usuário, confere e guarda protegida pelo Windows. Pode também reiniciar o PC na hora para testar.
+4. Clique em **Concluir configuração**. O assistente some e a página passa a ser o Scry normal, com login.
+
+Depois disso:
+
+- Entre no Windows como o usuário da parede (ou espere o logon automático). As janelas do Chrome abrem sozinhas, uma por painel.
+- Entre no Scry com o administrador. Os 10 painéis devem aparecer **verdes**, com miniaturas.
+- Ajuste os dashboards (**Editar** ou arrastando da **Biblioteca**), salve o arranjo em **Gerenciar → Salvar a parede atual em um cenário** e crie os usuários da equipe em **Conta → Usuários**.
+- **Reinicie o PC uma vez** para confirmar que tudo volta sozinho.
+
+### Credencial do Grafana (só se os dashboards pedem login)
+
+Ela fica criptografada e **só o usuário da parede consegue criar e ler**, por isso não dá para fazer pelo navegador:
 
 1. Entre no Windows **como o usuário da parede**.
-2. Abra o **PowerShell** normal (não precisa ser como Administrador) e rode, trocando `USUARIO_GRAFANA`:
+2. Abra o **PowerShell** normal e rode, trocando `USUARIO_GRAFANA`:
    ```powershell
    Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\NOC\grafana.cred
    ```
 3. Digite a senha do Grafana na janela que abrir.
 
-### Passo 6. Conferir
+### Outra forma: pacote com dois cliques (sem internet, ou com nome e certificado próprios)
 
-1. Faça **logoff e logon** do usuário da parede (ou espere até 5 minutos). As janelas do Chrome abrem sozinhas, uma por painel.
-2. Em outro PC da rede, abra `https://SEU-ENDERECO` e entre com `admin`.
-3. Os 10 painéis devem aparecer **verdes** na grade, com miniaturas.
-4. **Reinicie o PC uma vez.** A parede e o Scry precisam voltar sozinhos cerca de 1 minuto depois do logon.
+Use quando o PC não acessa o GitHub, ou quando você já quer instalar com um **nome no DNS** (ex.: `scry.suaempresa.local`) e um **certificado `.pfx`**:
 
-Pronto! Agora ajuste os dashboards de cada painel pela página (**Editar** ou arrastando da **Biblioteca**), salve o arranjo em **Gerenciar → Salvar a parede atual em um cenário** e crie os usuários da equipe em **Conta → Usuários**.
+1. Baixe o `Scry-vX.Y.Z.zip` na aba [Releases](../../releases) e leve para o PC.
+2. Botão direito no `.zip` → **Propriedades** → marque **Desbloquear** → **OK**. Depois, **Extrair tudo…**.
+3. Dois cliques em **`INSTALAR.cmd`** → **Sim**. Responda as perguntas (Enter aceita o valor sugerido): usuário da parede, endereço, caminho do `.pfx` (ou Enter para autoassinado) e a senha do `admin`.
+
+Tem o zip, mas quer o caminho do assistente? Rode `$env:SCRY_ZIP = 'C:\caminho\Scry-vX.Y.Z.zip'` e depois o comando do passo 1.
 
 ---
 
 ## Atualizar para uma versão nova
 
-É o mesmo caminho da instalação:
+Rode **o mesmo comando** do passo 1, como Administrador:
 
-1. Baixe e extraia o `.zip` novo (em qualquer pasta, **menos** dentro de `C:\NOC`).
-2. Dois cliques em **`INSTALAR.cmd`** → **Sim**.
+```powershell
+irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
+```
 
-O instalador percebe que o Scry já está instalado e só atualiza: faz backup em `C:\NOC\Manager\backups`, troca o código, reinicia e confere se a versão nova respondeu. **Painéis, usuários e auditoria são mantidos.**
+Ele percebe que o Scry já está instalado e só atualiza: faz backup em `C:\NOC\Manager\backups`, troca o código, reinicia e confere se a versão nova respondeu. **Painéis, usuários e auditoria são mantidos.** Com o pacote, dá no mesmo: extraia o zip novo **fora** de `C:\NOC` e dê dois cliques no `INSTALAR.cmd`.
 
 Deu errado? Volte para a versão anterior (PowerShell como Administrador):
 
@@ -137,7 +124,8 @@ powershell -ExecutionPolicy Bypass -File C:\NOC\Update-NocManager.ps1 -Reverter
 
 | Quero… | Como (PowerShell como Administrador) |
 |---|---|
-| Trocar o certificado, o endereço ou o usuário da parede | extraia o pacote e rode `INSTALAR.cmd -Reinstalar` num prompt de comando |
+| Usar um nome no DNS e um certificado `.pfx` no lugar do IP, ou trocar o usuário da parede | rode `C:\NOC\INSTALAR.cmd -Reinstalar` num prompt de comando como Administrador e responda as perguntas |
+| Gerar um código novo para o assistente (venceu ou perdeu) | rode o comando de instalação de novo |
 | Redefinir a senha do `admin` | `powershell -ExecutionPolicy Bypass -File C:\NOC\Manager\NocManager.ps1 -NovoAdmin admin` |
 | Testar tudo automaticamente | `powershell -ExecutionPolicy Bypass -File C:\NOC\Test-NocManager.ps1 -Url https://SEU-ENDERECO -Usuario admin` (esperado: `0 falha(s)`) |
 | Desinstalar | `powershell -ExecutionPolicy Bypass -File C:\NOC\Install-NocManager.ps1 -Remover` (remove tarefas, firewall e certificado das portas; mantém os arquivos) |
@@ -148,12 +136,16 @@ Opções avançadas do instalador (portas, redes permitidas, sem HTTP): [NOC/INS
 
 | Sintoma | O que fazer |
 |---|---|
-| "O Windows protegeu o computador" ao abrir o `INSTALAR.cmd` | clique em **Mais informações → Executar assim mesmo**, ou desbloqueie o `.zip` antes de extrair (passo 3) |
+| "Abra o PowerShell como Administrador" | o comando precisa de uma janela aberta com *Executar como administrador* |
+| "O Release … não tem o pacote" | o GitHub Actions ainda está gerando o zip; espere 1 minuto e rode de novo |
+| "Código inválido ou vencido" | rode o comando de instalação de novo para gerar outro código |
+| Logon automático não entra sozinho | confira a senha do usuário; contas com *Windows Hello* exigido podem bloquear o logon automático (desative em *Contas → Opções de entrada*) |
+| "O Windows protegeu o computador" ao abrir o `INSTALAR.cmd` | clique em **Mais informações → Executar assim mesmo**, ou desbloqueie o `.zip` antes de extrair |
 | "Telas: N painéis detectados (esperado: 10)" | escala diferente de 100%, resolução não nativa ou arranjo diferente de 10 blocos 1920×1080 |
 | Navegador não acha o endereço | falta o registro no DNS interno, ou ele aponta para o IP errado |
 | Navegador avisa sobre o certificado | o certificado é autoassinado; instale um confiável com `INSTALAR.cmd -Reinstalar` e um `.pfx` |
 | "Acesso permitido somente pela rede interna" | o PC de quem acessa está numa rede fora das liberadas (`-AllowFrom`) |
-| Painéis abrem na tela de login do Grafana | refaça o passo 5 logado como o usuário da parede |
+| Painéis abrem na tela de login do Grafana | refaça a [credencial do Grafana](#credencial-do-grafana-só-se-os-dashboards-pedem-login) logado como o usuário da parede |
 | Janelas do Chrome não abrem | confira o logon automático e se a tarefa `NOC-VideoWall` existe no *Agendador de Tarefas* |
 | Página não abre | veja `C:\NOC\Manager\diag.log` e se a tarefa `NOC-Manager` está *Em execução* |
 
@@ -186,7 +178,8 @@ O pacote sai em `dist\Scry-vX.Y.Z.zip`. A versão vem de `$Version` em `NOC/Mana
 
 | Pasta/arquivo | O que tem |
 |---|---|
-| `INSTALAR.cmd` | instalar ou atualizar com dois cliques |
+| `install.ps1` | instalação/atualização com um comando (`irm … \| iex`) |
+| `INSTALAR.cmd` | instalar ou atualizar pelo pacote, com dois cliques |
 | `Build-Pacote.ps1` | gera o `.zip` de instalação |
 | `NOC/` | o programa, que vai para `C:\NOC` no PC da parede ([uso e manutenção](NOC/LEIAME.md), [instalação detalhada](NOC/INSTALAR.md)) |
 | `zabbix/` | template de monitoração ([LEIAME](zabbix/LEIAME.md)) |

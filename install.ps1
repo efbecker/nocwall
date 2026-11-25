@@ -1,0 +1,133 @@
+# Scry - instalacao com UM comando (PowerShell como Administrador, no PC da parede ou por SSH):
+#
+#   irm https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | iex
+#
+# O que faz:
+#   - Baixa o pacote do ultimo Release do GitHub (Scry-vX.Y.Z.zip).
+#   - Primeira vez: copia para C:\NOC, instala sem perguntas (certificado autoassinado, firewall so
+#     para redes internas, servidor web como SYSTEM) e mostra o endereco e um CODIGO de uso unico.
+#     O resto (admin, usuario da parede, logon automatico) e feito no navegador.
+#   - Ja instalado: so atualiza (com backup; paineis, usuarios e auditoria sao mantidos).
+#
+# Opcoes (variaveis de ambiente, antes do comando):
+#   $env:SCRY_VERSAO = 'v1.6.0'          instala essa versao em vez da ultima
+#   $env:SCRY_ZIP    = 'C:\temp\Scry.zip' usa um pacote local (PC sem acesso ao GitHub)
+#
+# Arquivo em ASCII de proposito (Windows PowerShell 5.1 le UTF-8 sem BOM como ANSI).
+
+& {
+  $ErrorActionPreference = 'Stop'
+  $ProgressPreference = 'SilentlyContinue'      # deixa o download bem mais rapido no PS 5.1
+  $Repo = 'efbecker/nocwall'
+  $Root = 'C:\NOC'
+
+  function Say([string]$t, [string]$c = 'Cyan') { Write-Host $t -ForegroundColor $c }
+  function Fail([string]$t) { Write-Host ""; Write-Host "ERRO: $t" -ForegroundColor Red; throw "Scry: instalacao interrompida." }
+  function Run-Ps([string]$File, [string[]]$ArgList) {
+    # sempre no Windows PowerShell 5.1 (os scripts do Scry sao para ele), mesmo se este comando rodar no PS 7
+    & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File $File @ArgList | Out-Host
+    return $LASTEXITCODE
+  }
+
+  Write-Host ""
+  Say "  Scry - Video Wall  |  instalacao com um comando" White
+  Say "  ----------------------------------------------" White
+
+  # ---------------------------------------------------------------- pre-requisitos
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) { Fail "Abra o PowerShell como Administrador (botao direito > Executar como administrador) e rode o comando de novo." }
+  if ($env:OS -ne 'Windows_NT') { Fail "O Scry roda so no Windows." }
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+  $work = Join-Path $env:TEMP ("scry-install-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  New-Item -ItemType Directory -Path $work -Force | Out-Null
+  try {
+    # ---------------------------------------------------------------- 1. baixar o pacote
+    $zip = Join-Path $work 'scry.zip'
+    if ($env:SCRY_ZIP) {
+      if (-not (Test-Path $env:SCRY_ZIP)) { Fail "Pacote nao encontrado: $env:SCRY_ZIP" }
+      Copy-Item $env:SCRY_ZIP $zip
+      Say "[1/4] Pacote local: $env:SCRY_ZIP"
+    } else {
+      $api = if ($env:SCRY_VERSAO) { "https://api.github.com/repos/$Repo/releases/tags/$($env:SCRY_VERSAO)" } else { "https://api.github.com/repos/$Repo/releases/latest" }
+      try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'scry-installer'; 'Accept' = 'application/vnd.github+json' } -UseBasicParsing }
+      catch { Fail "Nao consegui consultar os Releases em github.com/$Repo ($($_.Exception.Message)). Sem internet? Use `$env:SCRY_ZIP com um pacote local." }
+      $asset = @($rel.assets | Where-Object { $_.name -like 'Scry-v*.zip' }) | Select-Object -First 1
+      if (-not $asset) { Fail "O Release $($rel.tag_name) nao tem o pacote Scry-v*.zip anexado (o GitHub Actions ainda esta gerando? Tente em 1 minuto)." }
+      Say "[1/4] Baixando $($asset.name) ($([math]::Round($asset.size / 1KB)) KB)..."
+      Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing -Headers @{ 'User-Agent' = 'scry-installer' }
+    }
+    $pkg = Join-Path $work 'pkg'
+    Expand-Archive -Path $zip -DestinationPath $pkg -Force
+    $src = Join-Path $pkg 'NOC'
+    if (-not (Test-Path (Join-Path $src 'Manager\NocManager.ps1'))) { Fail "Pacote invalido: falta NOC\Manager\NocManager.ps1." }
+    Get-ChildItem $pkg -Recurse -File | Unblock-File
+    $ver = ([regex]::Match([IO.File]::ReadAllText((Join-Path $src 'Manager\NocManager.ps1')), "\`$Version\s*=\s*'([^']+)'")).Groups[1].Value
+    Say "      Scry v$ver"
+
+    $installed = (Get-ScheduledTask -TaskName 'NOC-Manager' -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $Root 'Manager\NocManager.ps1'))
+
+    if ($installed) {
+      # ---------------------------------------------------------------- 2. atualizar
+      Say "[2/4] Scry ja instalado: atualizando (com backup)..."
+      $rc = Run-Ps (Join-Path $src 'Update-NocManager.ps1') @('-Root', $Root, '-AplicarParede')
+      if ($rc -ne 0) { Fail "A atualizacao nao terminou bem. Para voltar: powershell -ExecutionPolicy Bypass -File $Root\Update-NocManager.ps1 -Reverter" }
+      Say "[3/4] (atualizacao nao muda tarefas, certificado nem firewall)"
+    } else {
+      # ---------------------------------------------------------------- 2. copiar e 3. instalar
+      Say "[2/4] Copiando para $Root..."
+      New-Item -ItemType Directory -Path $Root -Force | Out-Null
+      $keep = @('paineis.json', 'grafana.cred', 'layout.json', 'pausado.json', 'Manager\users.json', 'Manager\audit.log')
+      foreach ($f in Get-ChildItem $src -Recurse -File) {
+        $rel2 = $f.FullName.Substring($src.TrimEnd('\').Length + 1)
+        $dst = Join-Path $Root $rel2
+        if (($keep -contains $rel2) -and (Test-Path $dst)) { continue }
+        New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
+        Copy-Item -LiteralPath $f.FullName -Destination $dst -Force
+      }
+      # o INSTALAR.cmd tambem fica em C:\NOC, para reinstalar/reconfigurar depois
+      if (Test-Path (Join-Path $pkg 'INSTALAR.cmd')) { Copy-Item (Join-Path $pkg 'INSTALAR.cmd') (Join-Path $Root 'INSTALAR.cmd') -Force }
+      Say "[3/4] Instalando o servidor web (certificado, firewall, tarefa agendada)..."
+      $rc = Run-Ps (Join-Path $Root 'Install-NocManager.ps1') @('-Root', $Root, '-Setup')
+      if ($rc -ne 0) { Fail "O instalador falhou (veja as mensagens acima)." }
+    }
+
+    # ---------------------------------------------------------------- 4. codigo do assistente
+    $usersFile = Join-Path $Root 'Manager\users.json'
+    $pending = $true
+    if (Test-Path $usersFile) {
+      try { $pending = -not @((Get-Content $usersFile -Raw -Encoding UTF8 | ConvertFrom-Json).usuarios | Where-Object { $_.ativo }).Count } catch {}
+    }
+    $ips = @(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { $_.IPAddress })
+    $taskArgs = [string]((Get-ScheduledTask -TaskName 'NOC-Manager' -ErrorAction SilentlyContinue).Actions | Select-Object -First 1 -ExpandProperty Arguments)
+    $mPort = [regex]::Match($taskArgs, '-Prefix\s+"?https://[^:/]+:(\d+)/')
+    $port = if ($mPort.Success) { [int]$mPort.Groups[1].Value } else { 443 }
+    $mUrl = [regex]::Match($taskArgs, '-PublicUrl\s+"([^"]+)"')
+    $urls = if ($mUrl.Success) { @($mUrl.Groups[1].Value) } else { @($ips | ForEach-Object { "https://$_" + $(if ($port -ne 443) { ":$port" } else { '' }) }) }
+
+    Write-Host ""
+    if ($pending) {
+      $out = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'Manager\NocManager.ps1') -Root $Root -NovoCodigo
+      $code = ($out | Where-Object { $_ -like 'CODIGO=*' } | Select-Object -First 1) -replace '^CODIGO=', ''
+      if (-not $code) { Fail "Nao consegui gerar o codigo de configuracao: $out" }
+      Say "[4/4] Pronto! Agora termine a configuracao pelo navegador, de qualquer PC da rede:" Green
+      Write-Host ""
+      foreach ($u in $urls) { Say "        $u" White }
+      Write-Host ""
+      Say "        Codigo de instalacao:  $code" Yellow
+      Say "        (vale por 24 horas; rodar este comando de novo gera outro)" DarkGray
+      Write-Host ""
+      Say "  O navegador vai avisar sobre o certificado (autoassinado): clique em Avancado > Continuar." DarkGray
+      Say "  Se a porta 443 estiver bloqueada entre as redes, libere-a no firewall da rede." DarkGray
+    } else {
+      Say "[4/4] Pronto! Scry v$ver no ar:" Green
+      foreach ($u in $urls) { Say "        $u" White }
+      if (-not (Get-ScheduledTask -TaskName 'NOC-VideoWall' -ErrorAction SilentlyContinue)) {
+        Say "  Aviso: a tarefa da parede (NOC-VideoWall) nao existe. Rode $Root\INSTALAR.cmd -Reinstalar para informar o usuario da parede." Yellow
+      }
+    }
+    Write-Host ""
+  } finally {
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}

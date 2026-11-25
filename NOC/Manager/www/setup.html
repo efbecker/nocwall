@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scry · Configuração inicial</title>
+<meta name="theme-color" content="#0a1216">
+<style>
+  :root {
+    --bg: #0a1216; --panel: #0f1d25; --panel2: #142833; --line: #1f3a48;
+    --text: #d8e6ec; --muted: #7f98a4; --accent: #3fc9d8; --accent2: #1d8799;
+    --cyan: #3fd8e6; --violet: #8b7cf6; --danger: #e5484d; --warn: #f5a524; --ok: #30a46c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; color: var(--text);
+    font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: radial-gradient(900px 500px at 50% 0%, rgba(139,124,246,.14), transparent 70%), var(--bg); }
+  main { width: min(640px, 100%); margin: 0 auto; padding: 32px 16px 48px; }
+  .brand { text-align: center; margin-bottom: 22px; }
+  .brand h1 { margin: 0; font-size: 30px; letter-spacing: .5px;
+    background: linear-gradient(90deg, #e6f6f8, #c9c2ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand p { margin: 4px 0 0; color: var(--muted); }
+  .steps { display: flex; gap: 6px; justify-content: center; margin: 14px 0 0; flex-wrap: wrap; }
+  .steps span { font-size: 12px; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .steps span.on { border-color: var(--accent); color: #fff; background: rgba(63,201,216,.12); }
+  .steps span.done { color: var(--ok); border-color: rgba(48,164,108,.5); }
+  section { background: rgba(15,29,37,.94); border: 1px solid var(--line); border-radius: 12px; padding: 22px; margin-bottom: 14px; }
+  h2 { margin: 0 0 6px; font-size: 17px; }
+  h3 { margin: 18px 0 6px; font-size: 14px; color: #fff; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 12px 0 4px; }
+  input, select { font: inherit; color: inherit; background: #0b171d; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; width: 100%; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input.code { font-size: 24px; letter-spacing: 4px; text-align: center; text-transform: uppercase; font-family: Consolas, monospace; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+  .chk { display: flex; gap: 9px; align-items: flex-start; color: var(--text); font-size: 14px; margin-top: 14px; cursor: pointer; }
+  .chk input { width: auto; margin-top: 4px; }
+  button { font: inherit; color: #fff; background: var(--accent2); border: 1px solid var(--accent2); border-radius: 7px;
+    padding: 10px 18px; cursor: pointer; margin-top: 18px; }
+  button:hover { background: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.wide { width: 100%; }
+  .err { color: #ff9b9e; min-height: 20px; margin-top: 10px; }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin-top: 8px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; word-break: break-word; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: #ff9b9e; }
+  .note { border-left: 3px solid var(--line); padding: 4px 0 4px 12px; margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .note.warn { border-color: var(--warn); }
+  code { background: #0b171d; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; word-break: break-all; }
+  a { color: var(--accent); }
+  ol { padding-left: 20px; margin: 8px 0; } li { margin: 4px 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <h1>Scry</h1>
+    <p>Configuração inicial do video wall</p>
+    <div class="steps"><span id="st1">1. Código</span><span id="st2">2. Configurar</span><span id="st3">3. Pronto</span></div>
+  </div>
+
+  <section id="pLoad"><p class="muted">Carregando…</p></section>
+
+  <!-- 1. codigo -->
+  <section id="pCode" class="hidden">
+    <h2>Digite o código de instalação</h2>
+    <p class="muted">Ele apareceu na tela do comando de instalação, no formato <b>ABCD-EF23</b>. Vale por 24 horas e só para esta configuração.</p>
+    <form id="fCode">
+      <label for="code">Código</label>
+      <input id="code" class="code" maxlength="12" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX" required>
+      <button class="wide" type="submit">Continuar</button>
+      <div class="err" id="eCode"></div>
+    </form>
+    <p class="note">Perdeu o código ou venceu? Rode o comando de instalação de novo no servidor: ele mostra um código novo.</p>
+  </section>
+
+  <!-- 2. configurar -->
+  <form id="fSetup" class="hidden">
+    <section>
+      <h2>Este computador</h2>
+      <dl class="facts" id="facts"></dl>
+      <div id="chromeNote" class="note warn hidden">
+        O Google Chrome não foi encontrado. Instale para todos os usuários (<a href="https://www.google.com/chrome/" target="_blank" rel="noopener noreferrer">google.com/chrome</a>). Dá para concluir agora e instalar depois: as telas abrem quando o Chrome existir.
+      </div>
+    </section>
+
+    <section>
+      <h2>Administrador do Scry</h2>
+      <p class="muted">É a conta para entrar nesta página. Guarde a senha no cofre de senhas da equipe.</p>
+      <div class="row">
+        <div><label for="aUser">Usuário</label><input id="aUser" value="admin" autocomplete="username" required></div>
+        <div></div>
+        <div><label for="aPass">Senha (mínimo de 10 caracteres)</label><input id="aPass" type="password" minlength="10" autocomplete="new-password" required></div>
+        <div><label for="aPass2">Repita a senha</label><input id="aPass2" type="password" minlength="10" autocomplete="new-password" required></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Usuário da parede</h2>
+      <p class="muted">É o usuário do Windows que fica logado no PC mostrando as TVs. As janelas do Chrome abrem na sessão dele.</p>
+      <label for="wSel">Usuário do Windows</label>
+      <select id="wSel"></select>
+      <input id="wOther" class="hidden" placeholder="PC\usuario ou DOMINIO\usuario" style="margin-top:8px">
+
+      <h3>Logon automático (opcional)</h3>
+      <p class="muted">Faz o Windows entrar sozinho com esse usuário quando o PC liga, para a parede voltar sem ninguém digitar senha.</p>
+      <p id="autoNow" class="muted hidden"></p>
+      <label class="chk"><input type="checkbox" id="autoOn"> Ativar o logon automático para este usuário</label>
+      <div id="autoBox" class="hidden">
+        <label for="autoPass">Senha do Windows desse usuário</label>
+        <input id="autoPass" type="password" autocomplete="off">
+        <p class="note">A senha é conferida agora e guardada protegida pelo Windows (segredo LSA, o mesmo lugar usado pelo Autologon da Microsoft). Ela não fica em texto puro no registro nem nos arquivos do Scry. Quem tem acesso físico ao PC passa a vê-lo já logado.</p>
+        <label class="chk"><input type="checkbox" id="reboot"> Reiniciar o PC ao concluir (para testar o logon automático)</label>
+      </div>
+    </section>
+
+    <section>
+      <button class="wide" type="submit" id="bDone">Concluir configuração</button>
+      <div class="err" id="eSetup"></div>
+    </section>
+  </form>
+
+  <!-- 3. pronto -->
+  <section id="pDone" class="hidden">
+    <h2 class="ok">Configuração concluída</h2>
+    <dl class="facts" id="doneFacts"></dl>
+    <h3>Próximos passos</h3>
+    <ol id="nextSteps"></ol>
+    <button class="wide" type="button" id="bEnter">Entrar no Scry</button>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const show = (id) => { for (const s of ["pLoad", "pCode", "fSetup", "pDone"]) $(s).classList.toggle("hidden", s !== id); };
+const step = (n) => { for (let i = 1; i <= 3; i++) { $("st" + i).className = i < n ? "done" : (i === n ? "on" : ""); } };
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let info = null;
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-NOC": "1" },
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  let data = null; try { data = await r.json(); } catch (_) {}
+  if (r.status === 409 || (r.ok && data && data.pendente === false)) { location.replace("/"); throw new Error("ja configurado"); }
+  if (r.status === 401 && data && data.codigo) { step(1); show("pCode"); throw new Error(data.erro); }
+  if (!r.ok) throw new Error((data && data.erro) || ("Erro " + r.status));
+  return data;
+}
+
+function fact(dl, k, vHtml) { dl.insertAdjacentHTML("beforeend", `<dt>${esc(k)}</dt><dd>${vHtml}</dd>`); }
+
+async function loadInfo() {
+  info = await api("GET", "/api/setup/info");
+  const f = $("facts"); f.innerHTML = "";
+  fact(f, "Computador", esc(info.pc));
+  fact(f, "Endereço", (info.ips || []).map(ip => `<code>https://${esc(ip)}</code>`).join(" ") || "—");
+  fact(f, "Chrome", info.chrome ? `<span class="ok">✓ encontrado</span>` : `<span class="bad">✗ não encontrado</span>`);
+  $("chromeNote").classList.toggle("hidden", !!info.chrome);
+  if (info.telas && info.telas.paineis) {
+    const okT = info.telas.paineis === info.esperado;
+    fact(f, "Telas", `${esc((info.telas.telas || []).join(" + "))} = <b class="${okT ? "ok" : "warn"}">${info.telas.paineis} painéis</b>` +
+      (okT ? "" : ` <span class="warn">(esperado: ${info.esperado}; confira escala 100% e resolução nativa)</span>`));
+  } else {
+    fact(f, "Telas", `<span class="muted">serão detectadas quando o usuário da parede entrar no Windows (o Scry espera ${info.esperado} painéis de 1920×1080)</span>`);
+  }
+  // usuarios do Windows
+  const sel = $("wSel"); sel.innerHTML = "";
+  const users = [...new Set([info.logado, info.tarefaParede, ...(info.usuarios || [])].filter(Boolean))];
+  for (const u of users) {
+    const o = document.createElement("option"); o.value = u;
+    o.textContent = u + (u === info.logado ? "  (logado agora)" : "");
+    sel.append(o);
+  }
+  const other = document.createElement("option"); other.value = ""; other.textContent = "Outro usuário…"; sel.append(other);
+  const pick = info.tarefaParede || info.logado || users[0] || "";
+  sel.value = pick;
+  $("wOther").classList.toggle("hidden", sel.value !== "");
+  if (info.autoLogon) { $("autoNow").textContent = `Hoje o logon automático já está ativo para ${info.autoLogon}.`; $("autoNow").classList.remove("hidden"); }
+}
+
+$("wSel").onchange = () => { $("wOther").classList.toggle("hidden", $("wSel").value !== ""); if ($("wSel").value === "") $("wOther").focus(); };
+$("autoOn").onchange = () => { const on = $("autoOn").checked; $("autoBox").classList.toggle("hidden", !on); $("reboot").checked = on; if (on) $("autoPass").focus(); };
+
+$("fCode").onsubmit = async (ev) => {
+  ev.preventDefault(); $("eCode").textContent = "";
+  const b = ev.submitter || $("fCode").querySelector("button"); b.disabled = true;
+  try {
+    await api("POST", "/api/setup/codigo", { codigo: $("code").value });
+    step(2); show("fSetup"); await loadInfo(); $("aPass").focus();
+  } catch (e) { $("eCode").textContent = e.message; } finally { b.disabled = false; }
+};
+
+$("fSetup").onsubmit = async (ev) => {
+  ev.preventDefault(); $("eSetup").textContent = "";
+  if ($("aPass").value !== $("aPass2").value) { $("eSetup").textContent = "As senhas do administrador não conferem."; return; }
+  const wall = $("wSel").value || $("wOther").value.trim();
+  if (!wall) { $("eSetup").textContent = "Informe o usuário da parede."; return; }
+  const auto = $("autoOn").checked;
+  if (auto && !$("autoPass").value) { $("eSetup").textContent = "Informe a senha do Windows para o logon automático."; return; }
+  if (auto && $("reboot").checked && !confirm("O PC vai reiniciar em 20 segundos depois de concluir. Continuar?")) return;
+  $("bDone").disabled = true; $("bDone").textContent = "Configurando…";
+  try {
+    const r = await api("POST", "/api/setup/concluir", {
+      admin: { usuario: $("aUser").value.trim(), senha: $("aPass").value },
+      parede: { usuario: wall },
+      autoLogon: { ativar: auto, senha: auto ? $("autoPass").value : "" },
+      reiniciar: auto && $("reboot").checked
+    });
+    $("aPass").value = $("aPass2").value = $("autoPass").value = "";
+    done(r);
+  } catch (e) { $("eSetup").textContent = e.message; }
+  finally { $("bDone").disabled = false; $("bDone").textContent = "Concluir configuração"; }
+};
+
+function done(r) {
+  step(3); show("pDone");
+  const f = $("doneFacts"); f.innerHTML = "";
+  fact(f, "Administrador", esc(r.admin));
+  fact(f, "Usuário da parede", esc(r.parede));
+  fact(f, "Logon automático", r.autoLogon ? `<span class="ok">ativado</span>` : "não alterado");
+  const n = $("nextSteps"); n.innerHTML = "";
+  const add = (h) => n.insertAdjacentHTML("beforeend", `<li>${h}</li>`);
+  if (r.reiniciando) add("O PC reinicia em 20 segundos. Depois do logon, as janelas do Chrome abrem sozinhas em até 1 minuto.");
+  else add(`Entre no Windows como <b>${esc(r.parede)}</b> (ou faça logoff e logon). As janelas do Chrome abrem sozinhas, uma por painel, em até 5 minutos.`);
+  add("Entre no Scry com o administrador e ajuste os dashboards de cada painel (<b>Editar</b> ou arrastando da <b>Biblioteca</b>).");
+  add(`Se os dashboards pedem login do Grafana: logado como <b>${esc(r.parede)}</b>, abra o PowerShell e rode <code>Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\\NOC\\grafana.cred</code>`);
+  add("Quer um nome no lugar do IP (ex.: scry.suaempresa.local) e um certificado sem aviso? Veja \"Outras tarefas\" no README.");
+}
+$("bEnter").onclick = () => location.replace("/");
+
+(async () => {
+  try {
+    const st = await api("GET", "/api/setup/estado");
+    if (st.autorizado) { step(2); show("fSetup"); await loadInfo(); }
+    else { step(1); show("pCode"); $("code").focus(); }
+  } catch (e) {
+    if (!$("pLoad").classList.contains("hidden")) $("pLoad").innerHTML = `<p class="bad">${esc(e.message)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>
