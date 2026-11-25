@@ -66,6 +66,7 @@ Se os dashboards pedem login, informe um usuário **só leitura** no assistente 
 - **Cenários:** salve a parede inteira (ex.: *Dia*, *Noite*, *Incidente*) e aplique com um clique.
 - **Mosaico:** junte painéis vizinhos numa tela maior.
 - **Pausar a parede** por um tempo, **recarregar** ou **reabrir** tudo.
+- **Grafana em tela cheia:** os links de dashboard (`/d/...`) abrem com `kiosk`, sem o menu lateral. Para outro modo, escreva o `kiosk` no próprio link. O balão do Google Tradutor fica desligado nas telas.
 - **Usuários** com papéis `admin`, `operador` e `visualizador`, e auditoria de tudo.
 
 ![Botões de um painel: editar, recarregar, reabrir e abrir o link](docs/img/cartoes.png)

@@ -694,10 +694,20 @@ function Start-Worker {
 # Pede uma miniatura nova do painel daqui a $Seg segundos (tempo da pagina carregar)
 function Request-Shot([int]$N, [int]$Seg = 3) { $Cache["pedido$N"] = (Get-Date).AddSeconds($Seg) }
 
+# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
+# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
+function Add-GrafanaKiosk([string]$Url) {
+  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+  $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
+  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
+  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+  return $Url + $sep + 'kiosk' + $frag
+}
+
 function Invoke-PanelNavigate([int]$N, [string]$Url) {
   $t = Get-CdpTarget $N
   if (-not $t) { return $false }
-  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = $Url } | Out-Null
+  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = (Add-GrafanaKiosk $Url) } | Out-Null
   return $true
 }
 

@@ -42,6 +42,16 @@ public class W3 {
 [W3]::SetProcessDPIAware() | Out-Null
 Add-Type -AssemblyName System.Windows.Forms
 
+# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
+# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
+function Add-GrafanaKiosk([string]$Url) {
+  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+  $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
+  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
+  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+  return $Url + $sep + 'kiosk' + $frag
+}
+
 # Paineis vem do C:\NOC\paineis.json (editado pelo gerenciador web).
 $cfgFile = "C:\NOC\paineis.json"
 if (-not (Test-Path $cfgFile)) { throw "Nao encontrei $cfgFile" }
@@ -49,7 +59,7 @@ $cfgStamp = (Get-Item $cfgFile).LastWriteTimeUtc     # se mudar durante a rodada
 $cfg = Get-Content $cfgFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $paineis = @($cfg.paineis | Sort-Object { [int]$_.n } | ForEach-Object {
   $z = 0.67; if ($_.zoom) { $z = [double]$_.zoom }
-  [pscustomobject]@{ N = [int]$_.n; Nome = [string]$_.nome; Url = [string]$_.url; Zoom = $z }
+  [pscustomobject]@{ N = [int]$_.n; Nome = [string]$_.nome; Url = (Add-GrafanaKiosk ([string]$_.url)); Zoom = $z }
 })
 
 # Corta cada saida do Windows em blocos 1920x1080 (saida 4K = 4 blocos)
@@ -218,6 +228,9 @@ function Set-ProfileZoom($prof, $factor) {
     if ($json.partition.PSObject.Properties['per_host_zoom_levels']) {
       $json.partition.PSObject.Properties.Remove('per_host_zoom_levels')
     }
+    # sem o balao do Google Tradutor ("traduzir esta pagina?") nas telas
+    if (-not $json.translate) { $json | Add-Member -NotePropertyName translate -NotePropertyValue (New-Object psobject) -Force }
+    $json.translate | Add-Member -NotePropertyName enabled -NotePropertyValue $false -Force
     $text = $json | ConvertTo-Json -Depth 100 -Compress
     [IO.File]::WriteAllText($prefFile, $text, (New-Object Text.UTF8Encoding $false))   # UTF-8 sem BOM
   } catch {
@@ -335,7 +348,7 @@ foreach ($p in $paineis) {
       "--user-data-dir=`"$prof`"", "--app=$($p.Url)",
       "--window-position=$($t.X),$($t.Y)", "--window-size=$W,$H",
       "--no-first-run", "--noerrdialogs", "--disable-session-crashed-bubble",
-      "--disable-features=Translate", "--remote-debugging-port=$port")
+      "--disable-features=Translate,TranslateUI", "--remote-debugging-port=$port")
   }
 
   # Procura a janela entre TODOS os processos Chrome deste perfil (ate 15 s)

@@ -134,6 +134,13 @@
       }
     }
 
+    # Politica do Chrome para o PC todo: sem o balao do Google Tradutor nas telas da parede
+    try {
+      $pol = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
+      if (-not (Test-Path $pol)) { New-Item -Path $pol -Force | Out-Null }
+      New-ItemProperty -Path $pol -Name 'TranslateEnabled' -Value 0 -PropertyType DWord -Force | Out-Null
+    } catch { Say "  Aviso: nao consegui desligar o tradutor do Chrome ($($_.Exception.Message))." Yellow }
+
     # ---------------------------------------------------------------- 4. codigo do assistente
     $usersFile = Join-Path $Root 'Manager\users.json'
     $pending = $true
