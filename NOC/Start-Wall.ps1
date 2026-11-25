@@ -42,17 +42,6 @@ public class W3 {
 [W3]::SetProcessDPIAware() | Out-Null
 Add-Type -AssemblyName System.Windows.Forms
 
-# Localiza o chrome.exe (registro App Paths -> caminhos comuns, inclusive instalacao por usuario)
-$chrome = @(
-  (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
-  (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
-  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
-  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-
-if (-not $chrome) { throw "chrome.exe nao encontrado. Rode: Get-ChildItem C:\ -Filter chrome.exe -Recurse -ErrorAction SilentlyContinue" }
-Write-Host "Chrome: $chrome"
 # Paineis vem do C:\NOC\paineis.json (editado pelo gerenciador web).
 $cfgFile = "C:\NOC\paineis.json"
 if (-not (Test-Path $cfgFile)) { throw "Nao encontrei $cfgFile" }
@@ -85,6 +74,19 @@ try {
   }
   [IO.File]::WriteAllText("C:\NOC\layout.json", ($lay | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
 } catch { Write-Warning "Nao consegui gravar C:\NOC\layout.json: $($_.Exception.Message)" }
+
+# (depois do layout.json, para o Scry desenhar a parede mesmo sem Chrome)
+# Localiza o chrome.exe (registro App Paths -> caminhos comuns, inclusive instalacao por usuario)
+$chrome = @(
+  (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+  (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
+if (-not $chrome) { throw "chrome.exe nao encontrado (SCRY: SEM CHROME). Instale o Google Chrome para todos os usuarios." }
+Write-Host "Chrome: $chrome"
 
 # Mosaico (paineis mesclados pelo Scry): o painel ancora ocupa a area inteira (W x H)
 # e os absorvidos ficam com a janela fechada. Area que nao bate com as telas atuais e ignorada.

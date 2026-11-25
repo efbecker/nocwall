@@ -90,6 +90,9 @@
   .pausebar { display: flex; align-items: center; gap: 12px; padding: 10px 18px; flex-wrap: wrap;
     background: #3a1517; border-bottom: 1px solid #6a2326; color: #ffc9cb; }
   .pausebar b { color: #fff; }
+  .wallwarn { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: #3a1517; border-bottom: 1px solid #6a2326; color: #ffc9cb; }
+  .wallwarn.aviso { background: #33270f; border-bottom-color: #6b5214; color: #f5dca0; }
+  .wallwarn b { color: #fff; white-space: nowrap; }
 
   /* ---------- area principal ---------- */
   .main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 16px 18px 10px; }
@@ -228,7 +231,7 @@
   /* celular: a parede vira lista de cartoes */
   @media (min-width: 521px) and (max-width: 760px) { .canvas { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
   @media (max-width: 760px) {
-    header, .bar, .pausebar { padding-left: 12px; padding-right: 12px; }
+    header, .bar, .pausebar, .wallwarn { padding-left: 12px; padding-right: 12px; }
     .main { padding: 12px; }
     .canvas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; height: auto !important; margin: 0 !important; aspect-ratio: auto !important; }
     .screen { display: none; }
@@ -326,6 +329,8 @@
     <span id="pauseText"></span>
     <button class="primary small op-only" id="btnResume2">▶ Religar agora</button>
   </div>
+
+  <div class="wallwarn hidden" id="wallwarn" role="alert"><b id="wallwarnT"></b><span id="wallwarnMsg"></span></div>
 
   <div class="main" id="main">
     <div>
@@ -881,7 +886,7 @@ function renderStatus() {
       pre.src = `/api/paineis/${n}/print?t=${t}`;
       shownT[n] = t;
     }
-    if (!s.imgT && !s.online) { $("img" + n).classList.add("hidden"); const ph = $("ph" + n); ph.classList.remove("hidden"); ph.textContent = pausa ? "parede pausada" : "sem imagem (janela fechada)"; }
+    if (!s.imgT && !s.online) { $("img" + n).classList.add("hidden"); const ph = $("ph" + n); ph.classList.remove("hidden"); ph.textContent = pausa ? "parede pausada" : phMotivo(n); }
 
     // progresso de uma acao deste painel
     const b = busy[n];
@@ -909,6 +914,7 @@ function renderStatus() {
   }
   renderHealth(online);
   renderPause();
+  renderWallWarn();
   $("ver").textContent = "Scry · Video Wall v" + st.versao;
   $("lastUpd").textContent = "· atualizado " + new Date().toLocaleTimeString("pt-BR");
 }
@@ -952,6 +958,33 @@ function renderHealth(online) {
     chip(m.auto ? "ok" : "warn", "Auto", m.auto ? "ligada" : "desligada",
       `Manutenção automática ${m.auto ? "ligada" : "desligada"} · próxima reabertura: ${quando}` + (m.ultimo ? `\nÚltima ação: ${m.ultimo}` : ""));
   }
+}
+
+// por que a parede nao abre (o servidor confere Chrome, tarefa, usuario logado e telas)
+const WALL_TITULO = { semChrome: "Chrome não instalado.", semSessao: "Usuário da parede não está logado.", semTarefa: "Tarefa da parede não existe.",
+                      naoRodou: "A parede não está rodando.", poucasTelas: "Faltam telas." };
+function phMotivo(n) {
+  const w = st && st.parede, lt = cfg && cfg.layout && cfg.layout.tiles;
+  if (w && w.problema === "semChrome") return "Chrome não instalado neste PC";
+  if (w && w.problema === "semSessao") return "usuário da parede não está logado no Windows";
+  if (w && w.problema === "semTarefa") return "tarefa da parede não existe";
+  if (w && w.problema === "poucasTelas" && Array.isArray(lt) && lt.length <= n) return "sem tela no Windows para este painel";
+  return "sem imagem (janela fechada)";
+}
+function renderWallWarn() {
+  const w = st.parede, bar = $("wallwarn");
+  if (!w || !w.problema || st.pausa) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden"); bar.classList.toggle("aviso", w.nivel === "aviso");
+  $("wallwarnT").textContent = WALL_TITULO[w.problema] || "Atenção:";
+  const u = w.usuario || "o usuário da parede";
+  const MSG = {
+    semChrome: "Sem o Google Chrome as telas não abrem. Rode o comando de instalação do Scry de novo (ele instala o Chrome sozinho) ou instale pelo google.com/chrome, e clique em Reabrir tudo.",
+    semSessao: `As janelas abrem na sessão de ${u}. Entre no Windows com esse usuário (no próprio PC ou no console da VM) ou ative o logon automático.`,
+    semTarefa: "Rode C:\\NOC\\INSTALAR.cmd -Reinstalar como Administrador e informe o usuário da parede.",
+    naoRodou: "A tarefa NOC-VideoWall não roda há mais de 10 minutos. Confira no Agendador de Tarefas e veja C:\\NOC\\start-wall.log.",
+    poucasTelas: `As telas do Windows só têm espaço para ${w.telas} painel(is) de 1920×1080 (esperado: ${N_PANELS}). Confira as telas, a escala em 100% e a resolução.`
+  };
+  $("wallwarnMsg").textContent = MSG[w.problema] || w.msg || "";
 }
 
 function renderPause() {
