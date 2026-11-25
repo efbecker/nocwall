@@ -274,6 +274,7 @@
         <div class="menu hidden" id="menuUser">
           <button id="btnPwd">Minha senha</button>
           <button id="btnManut">Manutenção automática</button>
+          <button id="btnGraf" class="hidden">Login do Grafana</button>
           <button id="btnUsers" class="hidden">Usuários</button>
           <button id="btnAudit" class="hidden">Auditoria</button>
           <button id="btnLogout">Sair</button>
@@ -450,6 +451,28 @@
   </div>
 </div>
 
+<!-- ============ MODAL: GRAFANA ============ -->
+<div class="modal hidden" id="mGraf">
+  <div class="box">
+    <h2>Login do Grafana</h2>
+    <div class="muted">Com isso, os painéis que abrirem na tela de login do Grafana entram sozinhos. Use um usuário <b>só leitura</b>.</div>
+    <label for="gUrl">Endereço do Grafana</label>
+    <input id="gUrl" placeholder="https://grafana.suaempresa.com" autocomplete="off" spellcheck="false">
+    <label for="gUser">Usuário</label>
+    <input id="gUser" autocomplete="off" spellcheck="false">
+    <label for="gPass">Senha</label>
+    <input id="gPass" type="password" autocomplete="new-password">
+    <div class="hint" id="gInfo"></div>
+    <div class="hint" id="gRes"></div>
+    <div class="foot">
+      <button class="danger" id="gDel">Remover</button>
+      <button data-close>Fechar</button>
+      <button id="gTest">Testar conexão</button>
+      <button class="primary" id="gSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ MODAL: MINHA SENHA ============ -->
 <div class="modal hidden" id="mPwd">
   <div class="box">
@@ -617,6 +640,7 @@ async function startApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
   $("who").textContent = `${me.nome} · ${me.papel}`;
   $("btnUsers").classList.toggle("hidden", !can("admin"));
+  $("btnGraf").classList.toggle("hidden", !can("admin"));
   $("btnAudit").classList.toggle("hidden", !can("admin"));
   document.querySelectorAll(".adm-only").forEach(x => x.classList.toggle("hidden", !can("admin")));
   setSelMode(false);
@@ -1227,6 +1251,38 @@ $("mnSave").onclick = async () => {
     const r = await api("PUT", "/api/manutencao", { autoCorrigir: $("mnAuto").checked, congeladoMin: Number($("mnMin").value), reabrirHora: $("mnHora").value });
     toast(r.msg); closeModal("mManut"); poll();
   } catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- login do Grafana (admin)
+let grafCfg = null;
+$("btnGraf").onclick = async () => {
+  try {
+    grafCfg = await api("GET", "/api/grafana");
+    $("gUrl").value = grafCfg.url || ""; $("gUser").value = grafCfg.usuario || ""; $("gPass").value = "";
+    $("gPass").placeholder = grafCfg.temSenha ? "•••••••• (salva; digite só para trocar)" : "";
+    $("gInfo").textContent = grafCfg.configurado
+      ? `A senha fica guardada protegida pelo Windows e nunca é mostrada de volta. Salvo por ${grafCfg.por || "?"} em ${grafCfg.atualizado ? new Date(grafCfg.atualizado).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "?"}.`
+      : (grafCfg.legado ? "Hoje a parede usa o grafana.cred antigo (criado pelo PowerShell). Salvando aqui, este passa a valer." : "Ainda não configurado. A senha fica guardada protegida pelo Windows e nunca é mostrada de volta.");
+    $("gRes").textContent = ""; $("gRes").style.color = "";
+    $("gDel").classList.toggle("hidden", !grafCfg.configurado);
+    openModal("mGraf"); (grafCfg.url ? $("gPass") : $("gUrl")).focus();
+  } catch (e) { toast(e.message, true); }
+};
+const grafBody = () => ({ url: $("gUrl").value.trim(), usuario: $("gUser").value.trim(), senha: $("gPass").value });
+$("gTest").onclick = async () => {
+  $("gRes").textContent = "Testando…"; $("gRes").style.color = "";
+  try {
+    const r = await api("POST", "/api/grafana/testar", grafBody());
+    $("gRes").textContent = (r.ok ? "✓ " : "✗ ") + r.msg; $("gRes").style.color = r.ok ? "var(--ok)" : "#ff9b9e";
+  } catch (e) { $("gRes").textContent = "✗ " + e.message; $("gRes").style.color = "#ff9b9e"; }
+};
+$("gSave").onclick = async () => {
+  try { const r = await api("PUT", "/api/grafana", grafBody()); $("gPass").value = ""; toast(r.msg); closeModal("mGraf"); }
+  catch (e) { toast(e.message, true); }
+};
+$("gDel").onclick = async () => {
+  if (!confirm("Remover o login do Grafana? Os painéis que pedirem login vão ficar na tela de login.")) return;
+  try { const r = await api("DELETE", "/api/grafana"); toast(r.msg); closeModal("mGraf"); } catch (e) { toast(e.message, true); }
 };
 
 // ---------------------------------------------------------------- minha senha

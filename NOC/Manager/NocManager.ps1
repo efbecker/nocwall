@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.6.0'
+$Version     = '1.7.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -598,7 +598,7 @@ $WorkerScript = {
           if (-not $s -or -not $s.online) { $c = 'offline' }
           elseif ([int]$semResp[$n] -ge 3) { $c = 'naoResponde' }
           elseif ($url -like 'chrome-error:*' -or $erroPg[$n]) { $c = 'erro' }
-          elseif ($url -match '^https?://[^/]+/login') { $c = 'login' }
+          elseif ($url -match '^https?://[^?#]+/login([?#/]|$)') { $c = 'login' }
           elseif ($man.congeladoMin -gt 0 -and $url -match '[?&]refresh=' -and $hashDesde[$n] -and ($now - $hashDesde[$n]).TotalMinutes -ge $man.congeladoMin) { $c = 'travado' }
           if (-not $c) { $Cache.Remove("al$n"); $cond.Remove($n); continue }
           if (-not $cond[$n] -or $cond[$n].c -ne $c) { $cond[$n] = @{ c = $c; t = $now } }
@@ -878,6 +878,67 @@ function Get-PublicUser($u) {
   return [pscustomobject]@{ usuario = $u.usuario; nome = $u.nome; papel = $u.papel; ativo = [bool]$u.ativo; criado = $u.criado }
 }
 
+# ---------------------------------------------------------------- Grafana: login automatico dos paineis
+# C:\NOC\grafana.json = { url; usuario; senha (DPAPI LocalMachine + entropia, base64); atualizado; por }
+# O arquivo fica legivel so para SYSTEM, Administradores e o usuario da parede (o Start-Wall.ps1 decifra).
+$GrafanaFile = Join-Path $Root 'grafana.json'
+$GrafanaEntropy = [Text.Encoding]::UTF8.GetBytes('Scry-Grafana-v1')
+Add-Type -AssemblyName System.Security
+
+function Protect-GrafanaSecret([string]$Plain) {
+  $b = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($Plain), $GrafanaEntropy, 'LocalMachine')
+  return [Convert]::ToBase64String($b)
+}
+function Unprotect-GrafanaSecret([string]$B64) {
+  $b = [Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($B64), $GrafanaEntropy, 'LocalMachine')
+  return [Text.Encoding]::UTF8.GetString($b)
+}
+function Get-GrafanaConfig { try { return (Read-JsonFile $GrafanaFile) } catch { return $null } }
+
+# Endereco base do Grafana (ex.: https://grafana.empresa.com ou https://servidor/grafana); $null se invalido
+function ConvertTo-GrafanaBase([string]$Url) {
+  $Url = $Url.Trim()
+  if ($Url -notmatch '^https?://') { return $null }
+  $u = $null
+  if (-not [Uri]::TryCreate($Url, 'Absolute', [ref]$u)) { return $null }
+  if ($u.Query -or $u.Fragment -or $u.UserInfo) { return $null }
+  return ($u.GetLeftPart('Authority') + $u.AbsolutePath).TrimEnd('/')
+}
+
+function Set-GrafanaAcl {
+  if (-not (Test-Path $GrafanaFile)) { return }
+  $grant = @('*S-1-5-18:F', '*S-1-5-32-544:F')
+  $wall = $null
+  try { $wall = (Get-ScheduledTask -TaskName $WallTask -ErrorAction Stop).Principal.UserId } catch {}
+  if ($wall) { $grant += "${wall}:R" }
+  $out = & icacls.exe $GrafanaFile /inheritance:r /grant:r @grant 2>&1
+  if ($LASTEXITCODE -ne 0) { Write-Diag "AVISO permissoes do grafana.json: $out" }
+}
+
+function Save-GrafanaConfig([string]$Base, [string]$Usuario, [string]$Senha, [string]$Who) {
+  $old = Get-GrafanaConfig
+  $enc = if ($Senha) { Protect-GrafanaSecret $Senha } elseif ($old) { [string]$old.senha } else { $null }
+  if (-not $enc) { throw 'Informe a senha do Grafana.' }
+  Write-JsonFile $GrafanaFile ([pscustomobject]@{ url = $Base; usuario = $Usuario; senha = $enc; atualizado = (Get-Date -Format s); por = $Who })
+  Set-GrafanaAcl
+}
+
+# Faz o mesmo login que a parede faz (POST <base>/login) e diz se o Grafana aceitou
+function Test-GrafanaLogin([string]$Base, [string]$Usuario, [string]$Senha) {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  $body = @{ user = $Usuario; password = $Senha } | ConvertTo-Json -Compress
+  try {
+    $null = Invoke-WebRequest -Uri "$Base/login" -Method Post -ContentType 'application/json' -Body $body -UseBasicParsing -TimeoutSec 10 -MaximumRedirection 0
+    return @{ ok = $true; msg = 'Login aceito pelo Grafana.' }
+  } catch {
+    $code = $null
+    try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+    if ($code -eq 401) { return @{ ok = $false; msg = 'O Grafana recusou o usuario ou a senha.' } }
+    if ($code) { return @{ ok = $false; msg = "O Grafana respondeu HTTP $code em $Base/login. O endereco esta certo?" } }
+    return @{ ok = $false; msg = "Nao consegui conectar em ${Base}: $($_.Exception.Message)" }
+  }
+}
+
 # ---------------------------------------------------------------- assistente de configuracao
 $SetupTokens = @{}   # token -> validade (depois de informar o codigo)
 
@@ -962,6 +1023,7 @@ function Register-WallTask([string]$WallUser) {
   $pWall  = New-ScheduledTaskPrincipal -UserId $WallUser -LogonType Interactive -RunLevel Limited
   $sWall  = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
   Register-ScheduledTask -TaskName $WallTask -Action $aWall -Trigger @($tLogon, $tRep) -Principal $pWall -Settings $sWall -Force | Out-Null
+  Set-GrafanaAcl                   # o (novo) usuario da parede precisa ler o grafana.json
 }
 
 function Set-AutoLogon([string]$WallUser, [string]$Senha) {
@@ -1024,6 +1086,14 @@ function Invoke-SetupRoute($Ctx, [string]$path, [string]$method, [string]$ip) {
 
   if ($path -eq '/api/setup/info' -and $method -eq 'GET') { Send-Json $Ctx 200 (Get-SetupInfo); return }
 
+  if ($path -eq '/api/setup/grafana' -and $method -eq 'POST') {
+    $b = Read-Body $Ctx
+    $base = ConvertTo-GrafanaBase ([string]$b.url)
+    if (-not $base) { Send-Json $Ctx 400 @{ erro = 'Endereco do Grafana invalido. Exemplo: https://grafana.suaempresa.com' }; return }
+    if (-not ([string]$b.usuario).Trim() -or -not [string]$b.senha) { Send-Json $Ctx 400 @{ erro = 'Informe usuario e senha do Grafana.' }; return }
+    Send-Json $Ctx 200 (Test-GrafanaLogin $base ([string]$b.usuario).Trim() ([string]$b.senha)); return
+  }
+
   if ($path -eq '/api/setup/concluir' -and $method -eq 'POST') {
     $b = Read-Body $Ctx
     $adm = ([string]$b.admin.usuario).Trim()
@@ -1034,6 +1104,13 @@ function Invoke-SetupRoute($Ctx, [string]$path, [string]$method, [string]$ip) {
     if ($wall -notlike '*\*') { $wall = "$env:COMPUTERNAME\$wall" }
     try { $null = (New-Object Security.Principal.NTAccount($wall)).Translate([Security.Principal.SecurityIdentifier]) }
     catch { Send-Json $Ctx 400 @{ erro = "Usuario do Windows nao encontrado: $wall" }; return }
+    # Grafana (opcional): valida antes de mexer em qualquer coisa
+    $gBase = $null; $gUser = ([string]$b.grafana.usuario).Trim(); $gPass = [string]$b.grafana.senha
+    if (([string]$b.grafana.url).Trim()) {
+      $gBase = ConvertTo-GrafanaBase ([string]$b.grafana.url)
+      if (-not $gBase) { Send-Json $Ctx 400 @{ erro = 'Endereco do Grafana invalido. Exemplo: https://grafana.suaempresa.com' }; return }
+      if (-not $gUser -or -not $gPass) { Send-Json $Ctx 400 @{ erro = 'Informe usuario e senha do Grafana (ou deixe o endereco vazio).' }; return }
+    }
     $auto = [bool]$b.autoLogon.ativar
     if ($auto) {
       Initialize-ScryWin
@@ -1047,6 +1124,7 @@ function Invoke-SetupRoute($Ctx, [string]$path, [string]$method, [string]$ip) {
     # parede e logon automatico antes do admin: se algo falhar, o assistente continua disponivel
     try { Register-WallTask $wall } catch { Send-Json $Ctx 500 @{ erro = "Nao consegui criar a tarefa da parede: $($_.Exception.Message)" }; return }
     if ($auto) { try { Set-AutoLogon $wall ([string]$b.autoLogon.senha) } catch { Send-Json $Ctx 500 @{ erro = $_.Exception.Message }; return } }
+    if ($gBase) { try { Save-GrafanaConfig $gBase $gUser $gPass "assistente" } catch { Send-Json $Ctx 500 @{ erro = "Nao consegui salvar o login do Grafana: $($_.Exception.Message)" }; return } }
     # admin: a partir daqui o Scry sai do modo de configuracao
     $users = Get-Users
     $users.usuarios = @($users.usuarios | Where-Object { $_.usuario -ne $adm })
@@ -1059,12 +1137,12 @@ function Invoke-SetupRoute($Ctx, [string]$path, [string]$method, [string]$ip) {
     $SetupTokens.Clear()
     $script:SetupPending = $false
     $Ctx.Response.Headers.Add('Set-Cookie', 'scry_setup=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0')
-    Write-Audit 'assistente' $ip 'SETUP_CONCLUIDO' "admin=$adm parede=$wall autoLogon=$auto"
+    Write-Audit 'assistente' $ip 'SETUP_CONCLUIDO' "admin=$adm parede=$wall autoLogon=$auto grafana=$(if ($gBase) { $gBase } else { 'nao' })"
     # se o usuario da parede ja estiver logado, as janelas abrem agora
     & schtasks.exe /Run /TN $WallTask 2>&1 | Out-Null
     $reiniciar = [bool]$b.reiniciar
     if ($reiniciar) { Start-Process -FilePath 'shutdown.exe' -ArgumentList '/r /t 20 /c "Scry: reiniciando para concluir a configuracao"' -WindowStyle Hidden }
-    Send-Json $Ctx 200 @{ ok = $true; admin = $adm; parede = $wall; autoLogon = $auto; reiniciando = $reiniciar }; return
+    Send-Json $Ctx 200 @{ ok = $true; admin = $adm; parede = $wall; autoLogon = $auto; grafana = $gBase; reiniciando = $reiniciar }; return
   }
   Send-Json $Ctx 404 @{ erro = 'Rota inexistente.' }
 }
@@ -1204,6 +1282,45 @@ function Invoke-Route($Ctx) {
       Update-ManutCache $cfg
       Write-Audit $who $ip 'MANUTENCAO_ALTERADA' "auto=$([bool]$b.autoCorrigir) congeladoMin=$min reabrirHora=$(if ($hora) { $hora } else { 'desligada' })"
       Send-Json $Ctx 200 @{ ok = $true; msg = 'Manutencao automatica salva.' }; return
+    }
+  }
+
+  # ---- Grafana: endereco, usuario e senha do login automatico dos paineis (so admin)
+  if ($path -eq '/api/grafana' -or $path -eq '/api/grafana/testar') {
+    if (-not (Test-Role $s 'admin')) { Send-Json $Ctx 403 @{ erro = 'Somente administradores.' }; return }
+    $g = Get-GrafanaConfig
+    if ($path -eq '/api/grafana' -and $method -eq 'GET') {
+      $r = @{ configurado = [bool]$g; legado = (Test-Path (Join-Path $Root 'grafana.cred')) }
+      if ($g) { $r.url = $g.url; $r.usuario = $g.usuario; $r.temSenha = [bool]$g.senha; $r.atualizado = $g.atualizado; $r.por = $g.por }
+      Send-Json $Ctx 200 $r; return
+    }
+    if ($method -eq 'DELETE' -and $path -eq '/api/grafana') {
+      Remove-Item -LiteralPath $GrafanaFile -Force -ErrorAction SilentlyContinue
+      Write-Audit $who $ip 'GRAFANA_REMOVIDO' ''
+      Send-Json $Ctx 200 @{ ok = $true; msg = 'Login do Grafana removido.' }; return
+    }
+    if ($method -eq 'PUT' -or $method -eq 'POST') {
+      $b = Read-Body $Ctx
+      $base = ConvertTo-GrafanaBase ([string]$b.url)
+      if (-not $base) { Send-Json $Ctx 400 @{ erro = 'Endereco do Grafana invalido. Exemplo: https://grafana.suaempresa.com' }; return }
+      $usr = ([string]$b.usuario).Trim()
+      if (-not $usr) { Send-Json $Ctx 400 @{ erro = 'Informe o usuario do Grafana.' }; return }
+      $senha = [string]$b.senha
+      if ($path -eq '/api/grafana/testar' -and $method -eq 'POST') {
+        # sem senha nova, testa com a salva, mas so no MESMO endereco (a senha salva nunca vai para outro servidor)
+        if (-not $senha) {
+          if (-not $g -or -not $g.senha -or $g.url -ne $base) { Send-Json $Ctx 400 @{ erro = 'Informe a senha para testar.' }; return }
+          try { $senha = Unprotect-GrafanaSecret ([string]$g.senha) } catch { Send-Json $Ctx 400 @{ erro = 'A senha salva nao pode ser lida. Informe de novo.' }; return }
+        }
+        Send-Json $Ctx 200 (Test-GrafanaLogin $base $usr $senha); return
+      }
+      if ($method -eq 'PUT' -and $path -eq '/api/grafana') {
+        if (-not $senha -and $g -and $g.url -ne $base) { Send-Json $Ctx 400 @{ erro = 'Trocou o endereco: informe a senha de novo.' }; return }
+        try { Save-GrafanaConfig $base $usr $senha $who } catch { Send-Json $Ctx 400 @{ erro = $_.Exception.Message }; return }
+        Write-Audit $who $ip 'GRAFANA_ALTERADO' "url=$base usuario=$usr senhaTrocada=$([bool]$senha)"
+        Start-WallWatchdog          # a parede refaz o login nos paineis que estiverem na tela de login
+        Send-Json $Ctx 200 @{ ok = $true; msg = 'Login do Grafana salvo. Os paineis na tela de login entram em ate 1 minuto.' }; return
+      }
     }
   }
 

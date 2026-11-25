@@ -122,15 +122,34 @@ if (Test-Path $pauseFile) {
 }
 
 # --- Login automatico no Grafana ------------------------------------------
-# Credencial guardada com DPAPI: so o MESMO usuario, NESTA maquina, consegue ler.
-# Criar uma vez (logado como o usuario da tarefa agendada):
-#   Get-Credential -UserName tvbqe -Message Grafana | Export-Clixml C:\NOC\grafana.cred
+# 1) C:\NOC\grafana.json, salvo pela interface web (Conta > Grafana ou assistente): endereco, usuario e
+#    senha protegida pelo Windows (DPAPI da maquina; o arquivo so e legivel para SYSTEM, Administradores
+#    e o usuario da parede).
+# 2) Legado: C:\NOC\grafana.cred, criado logado como o usuario da parede:
+#      Get-Credential -UserName USUARIO -Message Grafana | Export-Clixml C:\NOC\grafana.cred
 $credFile = "C:\NOC\grafana.cred"
+$gFile = "C:\NOC\grafana.json"
 $loginBody = $null
-if (Test-Path $credFile) {
+$gBase = 'https://grafana.armazem.cloud'      # so para o grafana.cred antigo, que nao guarda o endereco
+if (Test-Path $gFile) {
+  try {
+    $g = Get-Content $gFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    Add-Type -AssemblyName System.Security
+    $pw = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(
+      [Convert]::FromBase64String([string]$g.senha), [Text.Encoding]::UTF8.GetBytes('Scry-Grafana-v1'), 'LocalMachine'))
+    $loginBody = @{ user = [string]$g.usuario; password = $pw } | ConvertTo-Json -Compress
+    $gBase = ([string]$g.url).TrimEnd('/')
+    Write-Host "Grafana: $gBase (usuario $($g.usuario))"
+  } catch { Write-Warning "Nao consegui ler $gFile ($($_.Exception.Message)) - tentando o grafana.cred" }
+}
+if (-not $loginBody -and (Test-Path $credFile)) {
   $c = Import-Clixml $credFile
   $loginBody = @{ user = $c.UserName; password = $c.GetNetworkCredential().Password } | ConvertTo-Json -Compress
-} else { Write-Warning "Sem $credFile - login automatico desativado." }
+}
+if (-not $loginBody) { Write-Warning "Sem login do Grafana (Conta > Grafana na interface) - login automatico desativado." }
+$gUri = [Uri]$gBase
+$gOrigin = $gUri.GetLeftPart('Authority')           # a senha so e enviada para este servidor
+$gPath = $gUri.AbsolutePath.TrimEnd('/')            # Grafana em subpasta (ex.: /grafana)
 
 function Invoke-CDP($wsUrl, $expr) {
   $ws = New-Object System.Net.WebSockets.ClientWebSocket
@@ -151,11 +170,13 @@ function Invoke-CDP($wsUrl, $expr) {
 function Invoke-AutoLogin($port, $url, $nome) {
   if (-not $loginBody) { return }
   $jsUrl = $url | ConvertTo-Json      # string JS ja escapada
+  $jsBase = $gPath | ConvertTo-Json
   # Se a pagina estiver no /login, autentica via POST /login (mesma origem) e volta ao dashboard
   $js = @"
 (async () => {
-  if (!location.pathname.startsWith('/login')) return 'ja-autenticado';
-  const r = await fetch('/login', { method: 'POST', credentials: 'same-origin',
+  const base = $jsBase;
+  if (!location.pathname.startsWith(base + '/login')) return 'ja-autenticado';
+  const r = await fetch(base + '/login', { method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify($loginBody) });
   if (!r.ok) return 'falha-' + r.status;
   setTimeout(() => { location.href = $jsUrl; }, 200);
@@ -166,7 +187,7 @@ function Invoke-AutoLogin($port, $url, $nome) {
     $page = $null
     try { $page = Invoke-RestMethod "http://127.0.0.1:$port/json" -TimeoutSec 3 |
                   Where-Object { $_.type -in 'page','app' } | Select-Object -First 1 } catch {}
-    if ($page -and $page.url -like 'https://grafana.armazem.cloud/*') {
+    if ($page -and ([string]$page.url).StartsWith("$gOrigin/", [StringComparison]::OrdinalIgnoreCase)) {
       $res = Invoke-CDP $page.webSocketDebuggerUrl $js
       if ($res -match '"value":"([^"]+)"') { Write-Host "    login: $($Matches[1])" ; return }
     }

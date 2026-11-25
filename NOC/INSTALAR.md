@@ -35,9 +35,11 @@ Guia para instalar o Scry num PC de video wall novo, do zero. Tempo estimado: 30
 
 Com o `INSTALAR.cmd` (passo 4) a cópia para `C:\NOC` é automática. Na forma manual, copie a pasta `NOC` do pacote para `C:\`, de modo que exista `C:\NOC\Install-NocManager.ps1`, `C:\NOC\Manager\...` e assim por diante.
 
-## 3. Credencial do Grafana (logado como o usuário da parede)
+## 3. Credencial do Grafana
 
-Entre no Windows **como o usuário da parede**. Abra o PowerShell (não precisa ser como administrador) e rode, trocando `USUARIO_GRAFANA` pelo login do Grafana:
+**Mais simples:** pule este passo e, depois de instalar, configure em **Conta → Login do Grafana** na interface web (endereço, usuário, senha e botão *Testar conexão*).
+
+Forma antiga (ainda funciona): entre no Windows **como o usuário da parede**. Abra o PowerShell (não precisa ser como administrador) e rode, trocando `USUARIO_GRAFANA` pelo login do Grafana:
 
 ```powershell
 Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\NOC\grafana.cred
@@ -107,7 +109,7 @@ Prefira links do Grafana com `refresh=30s` ou mais e com `&kiosk`. A interface a
 | Sintoma | Causa provável |
 |---|---|
 | Aviso "Paineis detectados: N (esperado: 10)" | escala diferente de 100% ou arranjo de telas diferente de 10 blocos 1920×1080 |
-| Painéis abrem na tela de login do Grafana | o `grafana.cred` não foi criado pelo usuário da parede, ou a senha mudou (refaça o passo 3) |
+| Painéis abrem na tela de login do Grafana | confira em **Conta → Login do Grafana** (*Testar conexão*); no método antigo, o `grafana.cred` precisa ser criado pelo usuário da parede |
 | "O certificado do PFX não cobre ..." | o `-HostName` não termina em `.armazem.cloud` |
 | Navegador não acha o endereço | falta o registro no DNS interno, ou ele aponta para o IP errado |
 | "Acesso permitido somente pela rede interna" | o PC de quem acessa está numa rede fora do `-AllowFrom` |

@@ -119,6 +119,20 @@
     </section>
 
     <section>
+      <h2>Login do Grafana (opcional)</h2>
+      <p class="muted">Se os dashboards pedem login, informe aqui um usuário <b>só leitura</b> do Grafana: os painéis entram sozinhos. Dá para fazer depois em <b>Conta → Login do Grafana</b>.</p>
+      <label for="gUrl">Endereço do Grafana</label>
+      <input id="gUrl" placeholder="https://grafana.suaempresa.com" autocomplete="off" spellcheck="false">
+      <div class="row">
+        <div><label for="gUser">Usuário</label><input id="gUser" autocomplete="off" spellcheck="false"></div>
+        <div><label for="gPass">Senha</label><input id="gPass" type="password" autocomplete="new-password"></div>
+      </div>
+      <button type="button" id="gTest" style="background:transparent;border-color:var(--line)">Testar conexão</button>
+      <p id="gRes" class="muted"></p>
+      <p class="note">A senha é guardada protegida pelo Windows e só o Scry e o usuário da parede conseguem usá-la. Ela nunca é mostrada de volta.</p>
+    </section>
+
+    <section>
       <button class="wide" type="submit" id="bDone">Concluir configuração</button>
       <div class="err" id="eSetup"></div>
     </section>
@@ -185,6 +199,14 @@ async function loadInfo() {
 $("wSel").onchange = () => { $("wOther").classList.toggle("hidden", $("wSel").value !== ""); if ($("wSel").value === "") $("wOther").focus(); };
 $("autoOn").onchange = () => { const on = $("autoOn").checked; $("autoBox").classList.toggle("hidden", !on); $("reboot").checked = on; if (on) $("autoPass").focus(); };
 
+$("gTest").onclick = async () => {
+  $("gRes").className = "muted"; $("gRes").textContent = "Testando…";
+  try {
+    const r = await api("POST", "/api/setup/grafana", { url: $("gUrl").value.trim(), usuario: $("gUser").value.trim(), senha: $("gPass").value });
+    $("gRes").className = r.ok ? "ok" : "bad"; $("gRes").textContent = (r.ok ? "✓ " : "✗ ") + r.msg;
+  } catch (e) { $("gRes").className = "bad"; $("gRes").textContent = "✗ " + e.message; }
+};
+
 $("fCode").onsubmit = async (ev) => {
   ev.preventDefault(); $("eCode").textContent = "";
   const b = ev.submitter || $("fCode").querySelector("button"); b.disabled = true;
@@ -208,9 +230,10 @@ $("fSetup").onsubmit = async (ev) => {
       admin: { usuario: $("aUser").value.trim(), senha: $("aPass").value },
       parede: { usuario: wall },
       autoLogon: { ativar: auto, senha: auto ? $("autoPass").value : "" },
+      grafana: { url: $("gUrl").value.trim(), usuario: $("gUser").value.trim(), senha: $("gPass").value },
       reiniciar: auto && $("reboot").checked
     });
-    $("aPass").value = $("aPass2").value = $("autoPass").value = "";
+    $("aPass").value = $("aPass2").value = $("autoPass").value = $("gPass").value = "";
     done(r);
   } catch (e) { $("eSetup").textContent = e.message; }
   finally { $("bDone").disabled = false; $("bDone").textContent = "Concluir configuração"; }
@@ -222,12 +245,13 @@ function done(r) {
   fact(f, "Administrador", esc(r.admin));
   fact(f, "Usuário da parede", esc(r.parede));
   fact(f, "Logon automático", r.autoLogon ? `<span class="ok">ativado</span>` : "não alterado");
+  fact(f, "Grafana", r.grafana ? `<span class="ok">${esc(r.grafana)}</span>` : "não configurado");
   const n = $("nextSteps"); n.innerHTML = "";
   const add = (h) => n.insertAdjacentHTML("beforeend", `<li>${h}</li>`);
   if (r.reiniciando) add("O PC reinicia em 20 segundos. Depois do logon, as janelas do Chrome abrem sozinhas em até 1 minuto.");
   else add(`Entre no Windows como <b>${esc(r.parede)}</b> (ou faça logoff e logon). As janelas do Chrome abrem sozinhas, uma por painel, em até 5 minutos.`);
   add("Entre no Scry com o administrador e ajuste os dashboards de cada painel (<b>Editar</b> ou arrastando da <b>Biblioteca</b>).");
-  add(`Se os dashboards pedem login do Grafana: logado como <b>${esc(r.parede)}</b>, abra o PowerShell e rode <code>Get-Credential -UserName USUARIO_GRAFANA -Message Grafana | Export-Clixml C:\\NOC\\grafana.cred</code>`);
+  if (!r.grafana) add("Se os dashboards pedem login do Grafana, configure em <b>Conta → Login do Grafana</b>.");
   add("Quer um nome no lugar do IP (ex.: scry.suaempresa.local) e um certificado sem aviso? Veja \"Outras tarefas\" no README.");
 }
 $("bEnter").onclick = () => location.replace("/");
