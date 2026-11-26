@@ -528,13 +528,12 @@
 <script>
 "use strict";
 const RANK = { visualizador: 1, operador: 2, admin: 3 };
-const N_PANELS = 10;
+let N_PANELS = 10;        // vem do servidor (/api/estado: um painel por bloco dos monitores do Windows)
 const BUSY_TIMEOUT = 45000;
 // parede padrao caso o Start-Wall ainda nao tenha gravado o layout.json
-const DEFAULT_LAYOUT = {
-  telas: [{ x: 0, y: 0, w: 3840, h: 2160 }, { x: 3840, y: 0, w: 3840, h: 2160 },
-          { x: 7680, y: 0, w: 1920, h: 1080 }, { x: 7680, y: 1080, w: 1920, h: 1080 }],
-  tiles: Array.from({ length: N_PANELS }, (_, n) => ({ n, x: Math.floor(n / 2) * 1920, y: (n % 2) * 1080, w: 1920, h: 1080 }))
+const defaultLayout = () => {
+  const tiles = Array.from({ length: N_PANELS }, (_, n) => ({ n, x: Math.floor(n / 2) * 1920, y: (n % 2) * 1080, w: 1920, h: 1080 }));
+  return { telas: [{ x: 0, y: 0, w: Math.ceil(N_PANELS / 2) * 1920, h: 2160 }], tiles };
 };
 
 let me = null, cfg = null, st = null, stAt = 0, timer = null;
@@ -658,14 +657,18 @@ async function startApp() {
 
 async function loadState() {
   cfg = await api("GET", "/api/estado");
+  if (cfg && Number(cfg.nPaineis) > 0) N_PANELS = Number(cfg.nPaineis);
   renderScenarios(); renderNames(); renderLib();
 }
 
 // ---------------------------------------------------------------- parede fiel
 function layout() {
   const L = cfg && cfg.layout;
-  if (L && Array.isArray(L.telas) && Array.isArray(L.tiles) && L.tiles.length >= N_PANELS) return L;
-  return DEFAULT_LAYOUT;
+  if (L && Array.isArray(L.telas) && L.telas.length && Array.isArray(L.tiles) && L.tiles.length) {
+    // telas numeradas da esquerda para a direita (e de cima para baixo), como na parede
+    return { ...L, telas: [...L.telas].sort((a, b) => (a.x - b.x) || (a.y - b.y)) };
+  }
+  return defaultLayout();
 }
 function buildWall() {
   const L = layout(), cv = $("canvas");
@@ -677,7 +680,7 @@ function buildWall() {
   cv.style.aspectRatio = `${W} / ${H}`;
   L.telas.forEach((t, i) => {
     const up = t.y === minY && (t.y + t.h) < maxY;   // tela de cima de uma pilha: rotulo acima
-    const s = el("div", { class: "screen" }, el("span", { class: "lbl" + (up ? " up" : ""), text: `Tela ${i + 1} · ${t.w}×${t.h}` }));
+    const s = el("div", { class: "screen" }, el("span", { class: "lbl" + (up ? " up" : ""), text: `Tela ${i + 1} · ${t.w}×${t.h}` + (t.escala && t.escala !== 100 ? ` · escala ${t.escala}%` : "") }));
     Object.assign(s.style, { left: pct(t.x - minX, W), top: pct(t.y - minY, H), width: pct(t.w, W), height: pct(t.h, H) });
     cv.append(s);
   });
@@ -962,7 +965,7 @@ function renderHealth(online) {
 
 // por que a parede nao abre (o servidor confere Chrome, tarefa, usuario logado e telas)
 const WALL_TITULO = { semChrome: "Chrome não instalado.", semSessao: "Usuário da parede não está logado.", semTarefa: "Tarefa da parede não existe.",
-                      naoRodou: "A parede não está rodando.", poucasTelas: "Faltam telas." };
+                      naoRodou: "A parede não está rodando.", poucasTelas: "Os monitores mudaram." };
 function phMotivo(n) {
   const w = st && st.parede, lt = cfg && cfg.layout && cfg.layout.tiles;
   if (w && w.problema === "semChrome") return "Chrome não instalado neste PC";
@@ -982,7 +985,7 @@ function renderWallWarn() {
     semSessao: `As janelas abrem na sessão de ${u}. Entre no Windows com esse usuário (no próprio PC ou no console da VM) ou ative o logon automático.`,
     semTarefa: "Rode C:\\NOC\\INSTALAR.cmd -Reinstalar como Administrador e informe o usuário da parede.",
     naoRodou: "A tarefa NOC-VideoWall não roda há mais de 10 minutos. Confira no Agendador de Tarefas e veja C:\\NOC\\start-wall.log.",
-    poucasTelas: `As telas do Windows só têm espaço para ${w.telas} painel(is) de 1920×1080 (esperado: ${N_PANELS}). Confira as telas, a escala em 100% e a resolução.`
+    poucasTelas: `Os monitores do Windows mudaram: agora cabem ${w.telas} painel(is) (antes: ${N_PANELS}). O Scry se ajusta sozinho em até 5 minutos.`
   };
   $("wallwarnMsg").textContent = MSG[w.problema] || w.msg || "";
 }

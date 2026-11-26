@@ -96,9 +96,9 @@ else { Write-Warn2 "Google Chrome nao encontrado para todos os usuarios. Instale
 try {
   Add-Type -AssemblyName System.Windows.Forms
   $tiles = 0
-  foreach ($s in [System.Windows.Forms.Screen]::AllScreens) { $tiles += [math]::Ceiling($s.Bounds.Width / 1920) * [math]::Ceiling($s.Bounds.Height / 1080) }
-  if ($tiles -eq 10) { Write-Ok "Telas: 10 paineis de 1920x1080 detectados" }
-  else { Write-Warn2 "Telas: $tiles paineis detectados (esperado: 10). Confira escala 100% e resolucao nativa. Siga mesmo assim se as telas ainda nao estiverem ligadas." }
+  $scr = @([System.Windows.Forms.Screen]::AllScreens)
+  foreach ($s in $scr) { $tiles += [math]::Max(1, [math]::Round($s.Bounds.Width / 1920)) * [math]::Max(1, [math]::Round($s.Bounds.Height / 1080)) }
+  Write-Ok "Telas: $($scr.Count) monitor(es) = $tiles painel(is) (a parede usa todos; confira escala 100% e resolucao nativa)"
 } catch { Write-Warn2 "Nao consegui ler as telas ($($_.Exception.Message))." }
 
 # ---------------------------------------------------------------- 2. instalar ou atualizar?
