@@ -10,6 +10,7 @@
 #   - Primeira vez: copia para C:\NOC, instala sem perguntas (certificado autoassinado, firewall so
 #     para redes internas, servidor web como SYSTEM) e mostra o endereco e um CODIGO de uso unico.
 #     O resto (admin, usuario da parede, logon automatico) e feito no navegador.
+#   - Sem Google Chrome: instala o MSI oficial do Google (sem perguntas). Para pular: $env:SCRY_SEM_CHROME = '1'
 #   - Ja instalado: so atualiza (com backup; paineis, usuarios e auditoria sao mantidos).
 #
 # Opcoes (variaveis de ambiente, antes do comando):
@@ -99,6 +100,46 @@
       $rc = Run-Ps (Join-Path $Root 'Install-NocManager.ps1') @('-Root', $Root, '-Setup')
       if ($rc -ne 0) { Fail "O instalador falhou (veja as mensagens acima)." }
     }
+
+    # ---------------------------------------------------------------- Google Chrome (as telas sao janelas dele)
+    # Windows Server e PCs novos podem vir sem o Chrome. Instala o MSI oficial do Google para empresas,
+    # sem perguntas e para todos os usuarios. Para pular: $env:SCRY_SEM_CHROME = '1'.
+    function Find-ChromeExe {
+      @(
+        (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+      ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    }
+    if (Find-ChromeExe) {
+      Say "      Google Chrome: ok"
+    } elseif ($env:SCRY_SEM_CHROME) {
+      Say "  Aviso: o Google Chrome nao esta instalado (SCRY_SEM_CHROME definido: nao vou instalar). As telas so abrem com ele." Yellow
+    } else {
+      Say "      Google Chrome nao encontrado: instalando o MSI oficial do Google (1 a 3 minutos)..."
+      try {
+        $msi = Join-Path $work 'chrome.msi'
+        (New-Object Net.WebClient).DownloadFile('https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi', $msi)
+        $sig = Get-AuthenticodeSignature -FilePath $msi
+        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Google LLC') {
+          throw "assinatura do instalador nao confere ($($sig.Status))"
+        }
+        $p = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+        if ($p.ExitCode -notin 0, 3010) { throw "msiexec terminou com o codigo $($p.ExitCode)" }
+        if (-not (Find-ChromeExe)) { throw "o Chrome nao apareceu depois da instalacao" }
+        Say "      Google Chrome instalado." Green
+      } catch {
+        Say "  Aviso: nao consegui instalar o Google Chrome ($($_.Exception.Message))." Yellow
+        Say "  Instale pelo site google.com/chrome (para todos os usuarios). Sem ele as telas nao abrem." Yellow
+      }
+    }
+
+    # Politica do Chrome para o PC todo: sem o balao do Google Tradutor nas telas da parede
+    try {
+      $pol = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
+      if (-not (Test-Path $pol)) { New-Item -Path $pol -Force | Out-Null }
+      New-ItemProperty -Path $pol -Name 'TranslateEnabled' -Value 0 -PropertyType DWord -Force | Out-Null
+    } catch { Say "  Aviso: nao consegui desligar o tradutor do Chrome ($($_.Exception.Message))." Yellow }
 
     # ---------------------------------------------------------------- 4. codigo do assistente
     $usersFile = Join-Path $Root 'Manager\users.json'

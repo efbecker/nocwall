@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.7.0'
+$Version     = '1.7.1'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -235,6 +235,8 @@ function Get-Health {
   $pz = Get-Pause; $pc = $Cache['pc']; $cert = $Cache['cert']
   $ram = if ($pc -and $pc.memTotalMB) { [int][math]::Round((1 - $pc.memLivreMB / $pc.memTotalMB) * 100) } else { $null }
   $prob = @()
+  $wd = $null; try { $wd = Get-WallDiag } catch {}
+  if ($wd -and $wd.problema) { $prob += $wd.msg }
   if ($grupos.offline.Count)     { $prob += "painel(is) $($grupos.offline -join ',') fechado(s)" }
   if ($grupos.naoResponde.Count) { $prob += "painel(is) $($grupos.naoResponde -join ',') sem resposta" }
   if ($grupos.login.Count)       { $prob += "painel(is) $($grupos.login -join ',') na tela de login do Grafana" }
@@ -250,6 +252,7 @@ function Get-Health {
     codigo = $codigo; status = @('ok', 'alerta', 'critico')[$codigo]; resumo = $(if ($prob.Count) { $prob -join '; ' } else { 'ok' })
     parede = [ordered]@{
       pausada = [bool]$pz; pausaAte = $(if ($pz) { $pz.ate } else { $null })
+      problema = $(if ($wd) { $wd.problema } else { $null })
       janelas = $vis.Count; online = $online; mescladas = $abs.Count
       offline = @($grupos.offline); naoResponde = @($grupos.naoResponde); login = @($grupos.login); erro = @($grupos.erro); travado = @($grupos.travado)
     }
@@ -691,10 +694,20 @@ function Start-Worker {
 # Pede uma miniatura nova do painel daqui a $Seg segundos (tempo da pagina carregar)
 function Request-Shot([int]$N, [int]$Seg = 3) { $Cache["pedido$N"] = (Get-Date).AddSeconds($Seg) }
 
+# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
+# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
+function Add-GrafanaKiosk([string]$Url) {
+  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+  $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
+  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
+  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+  return $Url + $sep + 'kiosk' + $frag
+}
+
 function Invoke-PanelNavigate([int]$N, [string]$Url) {
   $t = Get-CdpTarget $N
   if (-not $t) { return $false }
-  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = $Url } | Out-Null
+  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = (Add-GrafanaKiosk $Url) } | Out-Null
   return $true
 }
 
@@ -948,6 +961,55 @@ function Find-Chrome {
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
   ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1)
+}
+
+# ---------------------------------------------------------------- por que a parede nao abre (aviso na pagina)
+# Olha a tarefa da parede, se o usuario dela esta logado (explorer.exe dele) e o ultimo start-wall.log.
+# Recalcula no maximo a cada 20 s (GetOwner e lento).
+$WallDiag = @{ t = [datetime]::MinValue; v = $null }
+function Get-WallDiag {
+  if (((Get-Date) - $WallDiag.t).TotalSeconds -lt 20) { return $WallDiag.v }
+  $d = [ordered]@{ problema = $null; nivel = $null; msg = $null; usuario = $null; logado = $false; ultimaRodada = $null; telas = $null }
+  try { $d.usuario = [string](Get-ScheduledTask -TaskName $WallTask -ErrorAction Stop).Principal.UserId } catch {}
+  $curto = if ($d.usuario) { ($d.usuario -split '\\')[-1] } else { $null }
+  if ($curto) {
+    try {
+      foreach ($pr in @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'")) {
+        $o = Invoke-CimMethod -InputObject $pr -MethodName GetOwner -ErrorAction SilentlyContinue
+        if ($o -and [string]$o.User -ieq $curto) { $d.logado = $true; break }
+      }
+    } catch {}
+  }
+  $txt = ''
+  $log = Join-Path $Root 'start-wall.log'
+  if (Test-Path $log) {
+    try {
+      $fi = Get-Item $log; $d.ultimaRodada = $fi.LastWriteTime.ToString('s')
+      $fs = [IO.File]::Open($log, 'Open', 'Read', 'ReadWrite')
+      try { $txt = (New-Object IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+    } catch {}
+  }
+  $nTiles = $null
+  try { $lay = Read-JsonFile $LayoutFile; if ($lay) { $nTiles = @($lay.tiles).Count } } catch {}
+  $d.telas = $nTiles
+  if (-not $d.usuario) {
+    $d.problema = 'semTarefa'; $d.nivel = 'erro'
+    $d.msg = "A tarefa da parede ($WallTask) nao existe, entao nenhuma tela abre. Rode C:\NOC\INSTALAR.cmd -Reinstalar como Administrador e informe o usuario da parede."
+  } elseif ($txt -match 'SCRY: SEM CHROME' -or (-not $txt -and -not (Find-Chrome))) {
+    $d.problema = 'semChrome'; $d.nivel = 'erro'
+    $d.msg = "O Google Chrome nao esta instalado neste PC, entao as telas nao abrem. Instale o Chrome (rodar o comando de instalacao do Scry de novo instala sozinho) e clique em Reabrir tudo."
+  } elseif (-not $d.logado) {
+    $d.problema = 'semSessao'; $d.nivel = 'erro'
+    $d.msg = "O usuario da parede ($($d.usuario)) nao esta logado no Windows. As janelas do Chrome so abrem na sessao dele: entre no Windows com esse usuario (ou ative o logon automatico)."
+  } elseif (-not $d.ultimaRodada -or ((Get-Date) - [datetime]$d.ultimaRodada).TotalMinutes -gt 12) {
+    $d.problema = 'naoRodou'; $d.nivel = 'erro'
+    $d.msg = "A tarefa da parede ($WallTask) nao roda ha mais de 10 minutos. Confira no Agendador de Tarefas e veja C:\NOC\start-wall.log."
+  } elseif ($null -ne $nTiles -and $nTiles -lt $PanelCount) {
+    $d.problema = 'poucasTelas'; $d.nivel = 'aviso'
+    $d.msg = "As telas deste PC so tem espaco para $nTiles painel(is) de 1920x1080 (esperado: $PanelCount). Os outros nao abrem: confira as telas, a escala em 100% e a resolucao no Windows."
+  }
+  $WallDiag.t = Get-Date; $WallDiag.v = [pscustomobject]$d
+  return $WallDiag.v
 }
 
 function Get-SetupInfo {
@@ -1259,7 +1321,7 @@ function Invoke-Route($Ctx) {
       }
     }
     Send-Json $Ctx 200 @{ versao = $Version; agora = (Get-Date -Format s); agoraMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-                          paineis = @($st); pc = $Cache['pc']; pausa = (Get-Pause); mosaicoSig = [string]$Cache['mosaicoSig']
+                          paineis = @($st); pc = $Cache['pc']; parede = (Get-WallDiag); pausa = (Get-Pause); mosaicoSig = [string]$Cache['mosaicoSig']
                           manut = @{ auto = [bool]$Cache['manut'].auto; proxima = (Get-NextReopen); ultimo = @($Cache['eventos'] | Select-Object -First 1)[0] } }
     return
   }

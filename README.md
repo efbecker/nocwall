@@ -12,7 +12,7 @@ No PC das TVs, abra o **Prompt de Comando como Administrador** (ou entre por SSH
 curl.exe -fsSL https://raw.githubusercontent.com/efbecker/nocwall/main/install.ps1 | powershell -NoProfile -ExecutionPolicy Bypass -Command -
 ```
 
-Ele instala sozinho, sem perguntas, e no fim mostra um endereço e um código:
+Ele instala sozinho, sem perguntas (inclusive o Google Chrome, se faltar), e no fim mostra um endereço e um código:
 
 ```
         https://192.168.0.40
@@ -34,7 +34,7 @@ Pronto. Entre no Windows com o usuário da parede (ou marque o **logon automáti
 
 ### Antes de instalar
 
-- Windows 10 ou 11 com o **Google Chrome**.
+- Windows 10, 11 ou Server 2019+. O **Google Chrome** é instalado sozinho se não houver.
 - Um usuário do Windows para as TVs (ex.: `parede`).
 - Em **Configurações → Sistema → Tela**: telas na mesma posição da parede, **escala 100%** e resolução nativa. Em **Energia**: nunca desligar a tela nem suspender.
 - A parede precisa somar **10 painéis Full HD**: cada TV 4K vale 4 e cada TV Full HD vale 1 (ex.: 2 TVs 4K + 2 Full HD).
@@ -66,6 +66,7 @@ Se os dashboards pedem login, informe um usuário **só leitura** no assistente 
 - **Cenários:** salve a parede inteira (ex.: *Dia*, *Noite*, *Incidente*) e aplique com um clique.
 - **Mosaico:** junte painéis vizinhos numa tela maior.
 - **Pausar a parede** por um tempo, **recarregar** ou **reabrir** tudo.
+- **Grafana em tela cheia:** os links de dashboard (`/d/...`) abrem com `kiosk`, sem o menu lateral. Para outro modo, escreva o `kiosk` no próprio link. O balão do Google Tradutor fica desligado nas telas.
 - **Usuários** com papéis `admin`, `operador` e `visualizador`, e auditoria de tudo.
 
 ![Botões de um painel: editar, recarregar, reabrir e abrir o link](docs/img/cartoes.png)
@@ -88,6 +89,8 @@ powershell -ExecutionPolicy Bypass -File C:\NOC\Update-NocManager.ps1 -Reverter
 | O comando não mostra nada | o PC não alcança o GitHub; teste `curl.exe -I https://raw.githubusercontent.com` ou use o `INSTALAR.cmd` |
 | "O pacote baixado é a v1.5.x…" | o último Release é antigo; crie um Release novo (veja abaixo) |
 | "Código inválido ou vencido" | rode o comando de instalação de novo: ele mostra outro código |
+| Faixa vermelha "Chrome não instalado" | rode o comando de instalação de novo (ele instala o Chrome) e clique em **Reabrir tudo** |
+| Faixa vermelha "Usuário da parede não está logado" | entre no Windows com o usuário da parede (ou ative o logon automático) |
 | Painéis na tela de login do Grafana | **Conta → Login do Grafana → Testar conexão** |
 | Janelas do Chrome não abrem | confira o logon automático e a tarefa `NOC-VideoWall` no *Agendador de Tarefas* |
 | A página não abre | veja `C:\NOC\Manager\diag.log` e a tarefa `NOC-Manager` |

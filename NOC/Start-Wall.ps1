@@ -42,17 +42,16 @@ public class W3 {
 [W3]::SetProcessDPIAware() | Out-Null
 Add-Type -AssemblyName System.Windows.Forms
 
-# Localiza o chrome.exe (registro App Paths -> caminhos comuns, inclusive instalacao por usuario)
-$chrome = @(
-  (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
-  (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
-  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
-  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
+# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
+function Add-GrafanaKiosk([string]$Url) {
+  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+  $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
+  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
+  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+  return $Url + $sep + 'kiosk' + $frag
+}
 
-if (-not $chrome) { throw "chrome.exe nao encontrado. Rode: Get-ChildItem C:\ -Filter chrome.exe -Recurse -ErrorAction SilentlyContinue" }
-Write-Host "Chrome: $chrome"
 # Paineis vem do C:\NOC\paineis.json (editado pelo gerenciador web).
 $cfgFile = "C:\NOC\paineis.json"
 if (-not (Test-Path $cfgFile)) { throw "Nao encontrei $cfgFile" }
@@ -60,7 +59,7 @@ $cfgStamp = (Get-Item $cfgFile).LastWriteTimeUtc     # se mudar durante a rodada
 $cfg = Get-Content $cfgFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $paineis = @($cfg.paineis | Sort-Object { [int]$_.n } | ForEach-Object {
   $z = 0.67; if ($_.zoom) { $z = [double]$_.zoom }
-  [pscustomobject]@{ N = [int]$_.n; Nome = [string]$_.nome; Url = [string]$_.url; Zoom = $z }
+  [pscustomobject]@{ N = [int]$_.n; Nome = [string]$_.nome; Url = (Add-GrafanaKiosk ([string]$_.url)); Zoom = $z }
 })
 
 # Corta cada saida do Windows em blocos 1920x1080 (saida 4K = 4 blocos)
@@ -85,6 +84,19 @@ try {
   }
   [IO.File]::WriteAllText("C:\NOC\layout.json", ($lay | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
 } catch { Write-Warning "Nao consegui gravar C:\NOC\layout.json: $($_.Exception.Message)" }
+
+# (depois do layout.json, para o Scry desenhar a parede mesmo sem Chrome)
+# Localiza o chrome.exe (registro App Paths -> caminhos comuns, inclusive instalacao por usuario)
+$chrome = @(
+  (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+  (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue).'(default)'
+  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
+if (-not $chrome) { throw "chrome.exe nao encontrado (SCRY: SEM CHROME). Instale o Google Chrome para todos os usuarios." }
+Write-Host "Chrome: $chrome"
 
 # Mosaico (paineis mesclados pelo Scry): o painel ancora ocupa a area inteira (W x H)
 # e os absorvidos ficam com a janela fechada. Area que nao bate com as telas atuais e ignorada.
@@ -216,6 +228,9 @@ function Set-ProfileZoom($prof, $factor) {
     if ($json.partition.PSObject.Properties['per_host_zoom_levels']) {
       $json.partition.PSObject.Properties.Remove('per_host_zoom_levels')
     }
+    # sem o balao do Google Tradutor ("traduzir esta pagina?") nas telas
+    if (-not $json.translate) { $json | Add-Member -NotePropertyName translate -NotePropertyValue (New-Object psobject) -Force }
+    $json.translate | Add-Member -NotePropertyName enabled -NotePropertyValue $false -Force
     $text = $json | ConvertTo-Json -Depth 100 -Compress
     [IO.File]::WriteAllText($prefFile, $text, (New-Object Text.UTF8Encoding $false))   # UTF-8 sem BOM
   } catch {
@@ -333,7 +348,7 @@ foreach ($p in $paineis) {
       "--user-data-dir=`"$prof`"", "--app=$($p.Url)",
       "--window-position=$($t.X),$($t.Y)", "--window-size=$W,$H",
       "--no-first-run", "--noerrdialogs", "--disable-session-crashed-bubble",
-      "--disable-features=Translate", "--remote-debugging-port=$port")
+      "--disable-features=Translate,TranslateUI", "--remote-debugging-port=$port")
   }
 
   # Procura a janela entre TODOS os processos Chrome deste perfil (ate 15 s)
