@@ -1,6 +1,8 @@
 # C:\NOC\Start-Wall.ps1
-# Video wall NOC - 10 janelas 1920x1080 sem borda, 1 por painel (ou menos, maiores, com mosaico).
-# Numeracao por coluna: 0/1 = coluna 1 (cima/baixo), 2/3 = coluna 2, ... 8/9 = coluna 5.
+# Video wall NOC - 1 janela sem borda por painel (ou menos, maiores, com mosaico).
+# Cada monitor do Windows vira 1 ou mais paineis (1080p = 1, 4K = 2x2, ...); a quantidade de paineis
+# e a soma de todos os monitores ligados.
+# Numeracao por coluna: esquerda -> direita e, na mesma coluna, de cima para baixo (0/1 = coluna 1, ...).
 # Pode rodar de novo a qualquer momento: abre so o que faltar e reposiciona o resto.
 
 # Registro da ultima execucao (a tarefa roda escondida a cada 5 min)
@@ -31,6 +33,28 @@ public class W3 {
  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+ [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
+ // Monitores do jeito que o Windows ve (mesma lista de Configuracoes > Tela), em pixels reais
+ [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+ struct MONITORINFOEX { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags;
+   [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string szDevice; }
+ delegate bool MonitorEnumProc(IntPtr hMon, IntPtr hdc, IntPtr rc, IntPtr data);
+ [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc cb, IntPtr data);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern bool GetMonitorInfo(IntPtr hMon, ref MONITORINFOEX mi);
+ [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr hMon, int type, out uint dx, out uint dy);
+ public class Mon { public string Nome; public int X, Y, W, H, Dpi; public bool Principal; }
+ public static Mon[] Monitors() {
+   var list = new System.Collections.Generic.List<Mon>();
+   EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr hMon, IntPtr hdc, IntPtr rc, IntPtr data) {
+     MONITORINFOEX mi = new MONITORINFOEX(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+     if (!GetMonitorInfo(hMon, ref mi)) return true;
+     uint dx = 96, dy = 96; try { if (GetDpiForMonitor(hMon, 0, out dx, out dy) != 0) dx = 96; } catch { dx = 96; }
+     list.Add(new Mon { Nome = mi.szDevice, X = mi.rcMonitor.L, Y = mi.rcMonitor.T, W = mi.rcMonitor.R - mi.rcMonitor.L,
+                        H = mi.rcMonitor.B - mi.rcMonitor.T, Dpi = (int)dx, Principal = (mi.dwFlags & 1) != 0 });
+     return true;
+   }, IntPtr.Zero);
+   return list.ToArray();
+ }
  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
@@ -39,7 +63,11 @@ public class W3 {
  [DllImport("gdi32.dll")]  public static extern IntPtr CreateRectRgn(int l,int t,int r,int b);
 }
 "@
-[W3]::SetProcessDPIAware() | Out-Null
+# Pixels reais em todos os monitores, mesmo com escalas diferentes entre eles (Per-Monitor v2 = -4).
+# Sem isso, um monitor com escala diferente da principal aparece com tamanho e posicao "virtuais".
+$dpiOk = $false
+try { $dpiOk = [W3]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch {}
+if (-not $dpiOk) { [W3]::SetProcessDPIAware() | Out-Null }
 Add-Type -AssemblyName System.Windows.Forms
 
 # Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
@@ -62,25 +90,44 @@ $paineis = @($cfg.paineis | Sort-Object { [int]$_.n } | ForEach-Object {
   [pscustomobject]@{ N = [int]$_.n; Nome = [string]$_.nome; Url = (Add-GrafanaKiosk ([string]$_.url)); Zoom = $z }
 })
 
-# Corta cada saida do Windows em blocos 1920x1080 (saida 4K = 4 blocos)
-$tiles = foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
-  $b = $s.Bounds
-  for ($y = $b.Y; $y -lt $b.Bottom; $y += 1080) {
-    for ($x = $b.X; $x -lt $b.Right; $x += 1920) { [pscustomobject]@{ X=$x; Y=$y } }
+# Monitores ligados (todos que aparecem em Configuracoes > Tela, no modo Estender)
+$MaxPaineis = 40          # portas 9300-9339
+$monitores = @()
+try { $monitores = @([W3]::Monitors()) } catch { Write-Warning "EnumDisplayMonitors falhou: $($_.Exception.Message)" }
+if (-not $monitores.Count) {
+  $monitores = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+    [pscustomobject]@{ Nome = $_.DeviceName; X = $_.Bounds.X; Y = $_.Bounds.Y; W = $_.Bounds.Width; H = $_.Bounds.Height; Dpi = 96; Principal = $_.Primary } })
+}
+$monitores = @($monitores | Sort-Object X, Y)
+Write-Host "Monitores do Windows: $($monitores.Count)"
+foreach ($m in $monitores) {
+  Write-Host ("  {0}  {1}x{2} em ({3},{4})  escala {5}%{6}" -f $m.Nome, $m.W, $m.H, $m.X, $m.Y, [math]::Round($m.Dpi / 96 * 100), $(if ($m.Principal) { '  [principal]' } else { '' }))
+}
+
+# Corta cada monitor em blocos de ~1920x1080: 1080p = 1 bloco, 4K = 2x2, 3840x1080 = 2x1.
+# Monitor menor que 1080p (ou com outra proporcao) vira 1 bloco do tamanho dele.
+$tiles = foreach ($m in $monitores) {
+  $cols = [math]::Max(1, [int][math]::Round($m.W / 1920)); $rows = [math]::Max(1, [int][math]::Round($m.H / 1080))
+  for ($ri = 0; $ri -lt $rows; $ri++) {
+    for ($ci = 0; $ci -lt $cols; $ci++) {
+      $x0 = $m.X + [int][math]::Floor($ci * $m.W / $cols); $x1 = $m.X + [int][math]::Floor(($ci + 1) * $m.W / $cols)
+      $y0 = $m.Y + [int][math]::Floor($ri * $m.H / $rows); $y1 = $m.Y + [int][math]::Floor(($ri + 1) * $m.H / $rows)
+      [pscustomobject]@{ X = $x0; Y = $y0; W = $x1 - $x0; H = $y1 - $y0 }
+    }
   }
 }
 # Ordem por COLUNA (esq->dir) e dentro da coluna de cima para baixo = 0,1 | 2,3 | ...
 $tiles = @($tiles | Sort-Object X, Y)
-Write-Host "Paineis detectados: $($tiles.Count) (esperado: 10)"
-if ($tiles.Count -ne 10) { Write-Warning "Confira escala 100% e o arranjo das telas no Windows." }
+if ($tiles.Count -gt $MaxPaineis) { Write-Warning "$($tiles.Count) blocos: so os $MaxPaineis primeiros viram paineis."; $tiles = @($tiles | Select-Object -First $MaxPaineis) }
+Write-Host "Paineis na parede: $($tiles.Count)"
 
 # Layout real (telas e blocos) para o gerenciador desenhar a grade igual a parede
 try {
   $lay = [pscustomobject]@{
     gerado = (Get-Date -Format s)
-    telas  = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
-      [pscustomobject]@{ nome = $_.DeviceName; x = $_.Bounds.X; y = $_.Bounds.Y; w = $_.Bounds.Width; h = $_.Bounds.Height; principal = $_.Primary } })
-    tiles  = @(for ($i = 0; $i -lt $tiles.Count; $i++) { [pscustomobject]@{ n = $i; x = $tiles[$i].X; y = $tiles[$i].Y; w = 1920; h = 1080 } })
+    telas  = @($monitores | ForEach-Object {
+      [pscustomobject]@{ nome = $_.Nome; x = $_.X; y = $_.Y; w = $_.W; h = $_.H; escala = [math]::Round($_.Dpi / 96 * 100); principal = [bool]$_.Principal } })
+    tiles  = @(for ($i = 0; $i -lt $tiles.Count; $i++) { [pscustomobject]@{ n = $i; x = $tiles[$i].X; y = $tiles[$i].Y; w = $tiles[$i].W; h = $tiles[$i].H } })
   }
   [IO.File]::WriteAllText("C:\NOC\layout.json", ($lay | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
 } catch { Write-Warning "Nao consegui gravar C:\NOC\layout.json: $($_.Exception.Message)" }
@@ -104,21 +151,22 @@ $areas = @{}; $absorvidos = @{}
 foreach ($a in @($cfg.mosaico | Where-Object { $_ })) {
   $n = [int]$a.n; $w = [int]$a.w; $h = [int]$a.h
   $membros = @(@($a.paineis) | ForEach-Object { [int]$_ })
-  $ok = ($n -ge 0) -and ($n -lt $tiles.Count) -and ($membros -contains $n) -and ($membros.Count -ge 2) -and ($w -ge 1920) -and ($h -ge 1080)
+  $ok = ($n -ge 0) -and ($n -lt $tiles.Count) -and ($membros -contains $n) -and ($membros.Count -ge 2)
+  if ($ok) { $ok = ($w -ge $tiles[$n].W) -and ($h -ge $tiles[$n].H) }
   if ($ok) {
     $t0 = $tiles[$n]; $soma = 0
     foreach ($m in $membros) {
       if ($m -lt 0 -or $m -ge $tiles.Count -or $absorvidos.ContainsKey($m) -or $areas.ContainsKey($m)) { $ok = $false; break }
       $tm = $tiles[$m]
-      if ($tm.X -lt $t0.X -or $tm.Y -lt $t0.Y -or ($tm.X + 1920) -gt ($t0.X + $w) -or ($tm.Y + 1080) -gt ($t0.Y + $h)) { $ok = $false; break }
-      $soma += 1920 * 1080
+      if ($tm.X -lt $t0.X -or $tm.Y -lt $t0.Y -or ($tm.X + $tm.W) -gt ($t0.X + $w) -or ($tm.Y + $tm.H) -gt ($t0.Y + $h)) { $ok = $false; break }
+      $soma += $tm.W * $tm.H
     }
     if ([math]::Abs($w * $h - $soma) -gt 8 * ($w + $h)) { $ok = $false }   # folga de ate 8 px entre telas
   }
   if (-not $ok) { Write-Warning "Mosaico do painel $n ignorado (nao bate com as telas atuais)."; continue }
   # "ampliar": o conteudo cresce junto com a area (2x2 = 2x); "espaco": mesmo tamanho de letra, mais conteudo
   $fator = 1.0
-  if ([string]$a.escala -ne 'espaco') { $fator = [double][math]::Max(1, [math]::Min([math]::Floor($w / 1920), [math]::Floor($h / 1080))) }
+  if ([string]$a.escala -ne 'espaco') { $fator = [double][math]::Max(1, [math]::Min([math]::Floor(($w + 8) / $t0.W), [math]::Floor(($h + 8) / $t0.H))) }
   $areas[$n] = [pscustomobject]@{ W = $w; H = $h; Fator = $fator }
   foreach ($m in $membros) { if ($m -ne $n) { $absorvidos[$m] = $n } }
   Write-Host ("Mosaico: painel {0} ocupa {1}x{2} (paineis {3}, escala {4})" -f $n, $w, $h, ($membros -join ','), $a.escala)
@@ -285,26 +333,31 @@ function Get-CaptionHeight($hwnd, $port) {
 
 # Mosaico de 2+ linhas: a janela (area + barra de 31 px do Chrome) fica mais alta que a area de trabalho,
 # e o Windows a limitaria (WM_GETMINMAXINFO) - o rodape perdia ~19 px. SWP_NOSENDCHANGING pula essa trava.
-function Set-Panel($hwnd, $t, $cap = 0, [int]$W = 1920, [int]$H = 1080) {
+function Set-Panel($hwnd, $t, $cap, [int]$W, [int]$H) {
   [W3]::SetWindowRgn($hwnd, [IntPtr]::Zero, $true) | Out-Null    # tira recorte anterior antes de medir
   $i = Get-Insets $hwnd
   $flags = 0x0044                                                  # NOZORDER|SHOWWINDOW
-  if ($W -ne 1920 -or $H -ne 1080) { $flags = $flags -bor 0x0400 } # + NOSENDCHANGING (so janelas de mosaico)
+  if ($W -ne $t.W -or $H -ne $t.H) { $flags = $flags -bor 0x0400 } # + NOSENDCHANGING (so janelas de mosaico)
   # janela maior: bordas do Windows + barra do Chrome ficam para fora do painel
   [W3]::SetWindowPos($hwnd, [IntPtr]::Zero, ($t.X - $i.L), ($t.Y - $i.T - $cap),
     ($W + $i.L + $i.R), ($H + $i.T + $i.B + $cap), $flags) | Out-Null
   $i = Get-Insets $hwnd                                            # mede de novo apos o resize
-  # recorte: so a pagina (abaixo da barra do Chrome), exatamente W x H (1920x1080 ou a area do mosaico)
+  # recorte: so a pagina (abaixo da barra do Chrome), exatamente W x H (o bloco ou a area do mosaico)
   $rgn = [W3]::CreateRectRgn($i.L, ($i.T + $cap), ($i.L + $W), ($i.T + $cap + $H))
   [W3]::SetWindowRgn($hwnd, $rgn, $true) | Out-Null                # o Windows passa a ser dono do rgn
 }
 
 foreach ($p in $paineis) {
-  if ($p.N -ge $tiles.Count) { Write-Warning "Sem bloco para o painel $($p.N)"; continue }
-  $t    = $tiles[$p.N]
   $prof = "C:\NOC\profiles\painel$($p.N)"
   $port = 9300 + $p.N      # porta de depuracao local (so 127.0.0.1)
   $profRx = [regex]::Escape($prof) + '(["\s]|$)'     # painel1 nao pode casar com painel10
+  if ($p.N -ge $tiles.Count) {
+    # monitor desligado/removido: a janela deste painel nao tem mais onde ficar
+    Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match $profRx } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Write-Warning "Sem monitor para o painel $($p.N) ($($p.Nome)) - janela fechada"; continue
+  }
+  $t    = $tiles[$p.N]
 
   # painel mesclado a outro: janela fechada
   if ($absorvidos.ContainsKey($p.N)) {
@@ -313,7 +366,7 @@ foreach ($p in $paineis) {
     Write-Host ("[{0}] mesclado ao painel {1} - janela fechada" -f $p.N, $absorvidos[$p.N])
     continue
   }
-  $W = 1920; $H = 1080; $zoom = $p.Zoom
+  $W = $t.W; $H = $t.H; $zoom = $p.Zoom
   if ($areas.ContainsKey($p.N)) {
     $ar = $areas[$p.N]; $W = $ar.W; $H = $ar.H
     if ([Math]::Abs($zoom - 0.67) -lt 0.001) { $zoom = 2.0 / 3.0 }

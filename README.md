@@ -37,7 +37,7 @@ Pronto. Entre no Windows com o usuário da parede (ou marque o **logon automáti
 - Windows 10, 11 ou Server 2019+. O **Google Chrome** é instalado sozinho se não houver.
 - Um usuário do Windows para as TVs (ex.: `parede`).
 - Em **Configurações → Sistema → Tela**: telas na mesma posição da parede, **escala 100%** e resolução nativa. Em **Energia**: nunca desligar a tela nem suspender.
-- A parede precisa somar **10 painéis Full HD**: cada TV 4K vale 4 e cada TV Full HD vale 1 (ex.: 2 TVs 4K + 2 Full HD).
+- O Scry usa **todos os monitores** do Windows (modo Estender): cada saída Full HD vira 1 painel e cada 4K vira 4 (ex.: 3 saídas 4K + 4 Full HD = 16 painéis). Ligou ou tirou um monitor, a grade se ajusta sozinha em até 5 minutos.
 
 <details>
 <summary>Outras formas de instalar</summary>

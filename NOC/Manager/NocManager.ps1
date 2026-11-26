@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.7.2'
+$Version     = '1.8.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -43,7 +43,20 @@ $ManutStateFile = Join-Path $ManagerDir 'manutencao-estado.json'
 $SetupFile   = Join-Path $ManagerDir 'setup.json'                # codigo do assistente (so o hash)   # data da ultima reabertura diaria
 $StartedAt   = Get-Date
 $BasePort    = 9300
-$PanelCount  = 10
+$MaxPanels   = 40                                   # portas de depuracao 9300-9339
+# Quantos paineis a parede tem: um por bloco do layout.json (cada monitor do Windows vira 1 ou mais
+# blocos). Sem layout.json ainda (instalacao nova), 10. Se o layout mudar, o gerenciador reinicia.
+function Get-LayoutPanelCount {
+  try {
+    if (Test-Path $LayoutFile) {
+      $k = @((Get-Content -Path $LayoutFile -Raw -Encoding UTF8 | ConvertFrom-Json).tiles).Count
+      if ($k -ge 1) { return [math]::Min($k, $MaxPanels) }
+    }
+  } catch {}
+  return 10
+}
+$PanelCount  = Get-LayoutPanelCount
+$LayoutCheck = Get-Date
 $SessionHours = 12
 $RoleRank    = @{ visualizador = 1; operador = 2; admin = 3 }
 
@@ -275,8 +288,8 @@ function Save-Config($c) { Write-JsonFile $CfgFile $c }
 # O ancora (bloco do canto superior esquerdo) ocupa a area toda; os outros ficam com a janela fechada.
 function Get-Tiles {
   $lay = $null; try { $lay = Read-JsonFile $LayoutFile } catch {}
-  if ($lay -and @($lay.tiles).Count -ge $PanelCount) {
-    return @($lay.tiles | ForEach-Object { [pscustomobject]@{ n = [int]$_.n; x = [int]$_.x; y = [int]$_.y; w = [int]$_.w; h = [int]$_.h } })
+  if ($lay -and @($lay.tiles).Count -ge 1) {
+    return @($lay.tiles | Select-Object -First $PanelCount | ForEach-Object { [pscustomobject]@{ n = [int]$_.n; x = [int]$_.x; y = [int]$_.y; w = [int]$_.w; h = [int]$_.h } })
   }
   return @(for ($i = 0; $i -lt $PanelCount; $i++) { [pscustomobject]@{ n = $i; x = [int][math]::Floor($i / 2) * 1920; y = ($i % 2) * 1080; w = 1920; h = 1080 } })
 }
@@ -1004,9 +1017,9 @@ function Get-WallDiag {
   } elseif (-not $d.ultimaRodada -or ((Get-Date) - [datetime]$d.ultimaRodada).TotalMinutes -gt 12) {
     $d.problema = 'naoRodou'; $d.nivel = 'erro'
     $d.msg = "A tarefa da parede ($WallTask) nao roda ha mais de 10 minutos. Confira no Agendador de Tarefas e veja C:\NOC\start-wall.log."
-  } elseif ($null -ne $nTiles -and $nTiles -lt $PanelCount) {
+  } elseif ($null -ne $nTiles -and [math]::Min($nTiles, $MaxPanels) -ne $PanelCount) {
     $d.problema = 'poucasTelas'; $d.nivel = 'aviso'
-    $d.msg = "As telas deste PC so tem espaco para $nTiles painel(is) de 1920x1080 (esperado: $PanelCount). Os outros nao abrem: confira as telas, a escala em 100% e a resolucao no Windows."
+    $d.msg = "Os monitores deste PC agora tem espaco para $nTiles painel(is) (antes: $PanelCount). O Scry se ajusta sozinho em ate 5 minutos."
   }
   $WallDiag.t = Get-Date; $WallDiag.v = [pscustomobject]$d
   return $WallDiag.v
@@ -1301,6 +1314,7 @@ function Invoke-Route($Ctx) {
     $o = Get-Config
     $lay = $null; try { $lay = Read-JsonFile $LayoutFile } catch {}
     $o | Add-Member -NotePropertyName layout -NotePropertyValue $lay -Force
+    $o | Add-Member -NotePropertyName nPaineis -NotePropertyValue $PanelCount -Force
     $o | Add-Member -NotePropertyName mosaicoSig -NotePropertyValue (Get-MosaicSig $o.mosaico) -Force
     Send-Json $Ctx 200 $o; return
   }
@@ -1435,7 +1449,7 @@ function Invoke-Route($Ctx) {
     if (-not (Test-Role $s 'operador')) { Send-Json $Ctx 403 @{ erro = 'Sem permissao.' }; return }
     $b = Read-Body $Ctx
     $itens = @($b.paineis)
-    if ($itens.Count -lt 1 -or $itens.Count -gt $PanelCount) { Send-Json $Ctx 400 @{ erro = 'Informe de 1 a 10 paineis.' }; return }
+    if ($itens.Count -lt 1 -or $itens.Count -gt $PanelCount) { Send-Json $Ctx 400 @{ erro = "Informe de 1 a $PanelCount paineis." }; return }
     $cfg = Get-Config
     $abs = Get-AbsorbedMap (Get-Mosaic $cfg)
     foreach ($it in $itens) {
@@ -1496,7 +1510,7 @@ function Invoke-Route($Ctx) {
   }
 
   # ---- paineis
-  if ($path -match '^/api/paineis/(\d)(/(recarregar|reabrir|print))?$') {
+  if ($path -match '^/api/paineis/(\d{1,2})(/(recarregar|reabrir|print))?$') {
     $n = [int]$Matches[1]; $acao = $Matches[3]
     if ($n -ge $PanelCount) { Send-Json $Ctx 404 @{ erro = 'Painel inexistente.' }; return }
 
@@ -1743,6 +1757,17 @@ function Test-Health {
     Write-Diag "REINICIO_MEMORIA ${mb}MB"
     try { $listener.Stop() } catch {}
     [Environment]::Exit(1)       # encerra tambem o runspace do worker
+  }
+  # monitores mudaram (layout.json com outra quantidade de blocos): reinicia para usar a parede nova
+  if (((Get-Date) - $script:LayoutCheck).TotalSeconds -ge 30) {
+    $script:LayoutCheck = Get-Date
+    $k = Get-LayoutPanelCount
+    if ($k -ne $PanelCount) {
+      Write-Audit "sistema" "local" "PAREDE_REDIMENSIONADA" "paineis $PanelCount -> $k (monitores do Windows mudaram)"
+      Write-Diag "REINICIO_LAYOUT paineis $PanelCount -> $k"
+      try { $listener.Stop() } catch {}
+      [Environment]::Exit(1)
+    }
   }
   if ($WorkerHandle -and $WorkerHandle.IsCompleted) {
     Write-Diag "worker parou: $($WorkerPs.Streams.Error | Select-Object -First 1) - reiniciando"

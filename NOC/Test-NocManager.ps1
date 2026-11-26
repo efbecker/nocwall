@@ -137,8 +137,9 @@ $r = Invoke-Api GET '/api/estado'
 if ($r.Code -eq 200) {
   $np = @($r.Json.paineis).Count; $nc = @($r.Json.cenarios).Count; $nb = @($r.Json.biblioteca).Count
   $lay = if ($r.Json.layout) { "layout real ($(@($r.Json.layout.telas).Count) telas)" } else { 'sem layout.json (grade padrao)' }
-  if ($np -eq 10) { Show-Result 'Estado' OK "$np paineis, $nc cenarios, $nb na biblioteca, $lay ($($r.Ms) ms)" }
-  else { Show-Result 'Estado' FALHA "$np paineis (esperado 10)" }
+  $npar = if ($r.Json.nPaineis) { [int]$r.Json.nPaineis } else { 10 }
+  if ($np -ge 1) { Show-Result 'Estado' OK "$np de $npar paineis com dashboard, $nc cenarios, $nb na biblioteca, $lay ($($r.Ms) ms)" }
+  else { Show-Result 'Estado' AVISO "nenhum painel com dashboard (parede com $npar paineis)" }
 } else { Show-Result 'Estado' FALHA "HTTP $($r.Code)" }
 
 # 6. status
@@ -148,7 +149,8 @@ if ($r.Code -eq 200) {
   $st = $r.Json
   $on = @($st.paineis | Where-Object online).Count
   $vis = @($st.paineis | Where-Object { $null -eq $_.absorvido }).Count     # paineis mesclados ficam fechados de proposito
-  $mos = if ($vis -lt 10) { " (mosaico: $(10 - $vis) painel(is) mesclado(s))" } else { '' }
+  $nst = @($st.paineis).Count
+  $mos = if ($vis -lt $nst) { " (mosaico: $($nst - $vis) painel(is) mesclado(s))" } else { '' }
   $mem0 = if ($st.pc) { $st.pc.managerMB } else { $null }
   if ($st.pausa) { Show-Result 'Status' AVISO "parede PAUSADA por $($st.pausa.por) ($on/$vis online)" }
   elseif ($on -eq $vis) { Show-Result 'Status' OK "$on/$vis online$mos ($($r.Ms) ms)" }

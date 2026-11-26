@@ -175,11 +175,9 @@ async function loadInfo() {
   fact(f, "Chrome", info.chrome ? `<span class="ok">✓ encontrado</span>` : `<span class="bad">✗ não encontrado</span>`);
   $("chromeNote").classList.toggle("hidden", !!info.chrome);
   if (info.telas && info.telas.paineis) {
-    const okT = info.telas.paineis === info.esperado;
-    fact(f, "Telas", `${esc((info.telas.telas || []).join(" + "))} = <b class="${okT ? "ok" : "warn"}">${info.telas.paineis} painéis</b>` +
-      (okT ? "" : ` <span class="warn">(esperado: ${info.esperado}; confira escala 100% e resolução nativa)</span>`));
+    fact(f, "Telas", `${esc((info.telas.telas || []).join(" + "))} = <b class="ok">${info.telas.paineis} painéis</b>`);
   } else {
-    fact(f, "Telas", `<span class="muted">serão detectadas quando o usuário da parede entrar no Windows (o Scry espera ${info.esperado} painéis de 1920×1080)</span>`);
+    fact(f, "Telas", `<span class="muted">serão detectadas quando o usuário da parede entrar no Windows (cada monitor Full HD vira 1 painel e cada 4K vira 4)</span>`);
   }
   // usuarios do Windows
   const sel = $("wSel"); sel.innerHTML = "";

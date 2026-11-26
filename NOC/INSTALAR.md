@@ -4,7 +4,7 @@ Guia para instalar o Scry num PC de video wall novo, do zero. Tempo estimado: 30
 
 > **Caminho rápido:** extraia o pacote e dê dois cliques em `INSTALAR.cmd` (veja o [README](../README.md#instalação-passo-a-passo-deploy)). Ele faz os passos 2 a 4 abaixo sozinho, perguntando o necessário. Este guia mostra o mesmo processo em detalhe e a forma manual, para quem precisa de opções avançadas.
 
-> **Antes de começar, confira:** nesta versão o Scry controla uma parede de **exatamente 10 painéis de 1920×1080**. Cada saída 4K do Windows vira 4 painéis e cada saída 1080p vira 1. A parede do NOC (2 telas 4K + 2 de 1080p) dá os 10. Se o novo PC tiver outro arranjo, ou outra quantidade de telas, fale com o responsável pelo projeto antes: isso exige ajuste no código.
+> **Antes de começar, confira:** o Scry usa todos os monitores que o Windows enxerga no modo Estender. Cada saída 4K vira 4 painéis e cada saída 1080p vira 1 (até 40 painéis). Deixe as telas na mesma posição da parede física em Configurações → Tela, com escala 100% e resolução nativa.
 
 ## O que você precisa ter em mãos
 
@@ -86,7 +86,7 @@ Opções do instalador, se precisar:
 ## 5. Conferir
 
 1. **Navegador:** abra `https://scry-jlle.armazem.cloud`. Deve abrir sem aviso de certificado. Entre com `admin`.
-2. **Parede:** os 10 painéis devem aparecer online na grade, com miniaturas. As telas Tela 1, Tela 2 e assim por diante precisam bater com a parede física.
+2. **Parede:** todos os painéis devem aparecer online na grade, com miniaturas. As telas Tela 1, Tela 2 e assim por diante precisam bater com a parede física.
 3. **Teste automático**, de qualquer PC da rede:
    ```powershell
    powershell -ExecutionPolicy Bypass -File C:\NOC\Test-NocManager.ps1 -Url https://scry-jlle.armazem.cloud -Usuario admin
