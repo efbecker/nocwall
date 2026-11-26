@@ -34,6 +34,17 @@ jobs:
           if ($erros) { exit 1 }
           Write-Host "Scripts OK"
 
+      - name: Conferir se a tag bate com a versao do codigo (so em tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        run: |
+          $v = [regex]::Match((Get-Content NOC\Manager\NocManager.ps1 -Raw), "\`$Version\s*=\s*'([^']+)'").Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            Write-Host "::error::A tag ${{ github.ref_name }} aponta para um commit com a versao $v no NocManager.ps1. Crie o Release a partir do commit certo da main (ou ajuste o `$Version)."
+            exit 1
+          }
+          Write-Host "Tag e versao conferem: v$v"
+
       - name: Gerar pacote
         shell: powershell
         run: .\Build-Pacote.ps1

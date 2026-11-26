@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.7.1'
+$Version     = '1.7.2'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)

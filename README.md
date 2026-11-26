@@ -102,7 +102,7 @@ Mais casos: [NOC/LEIAME.md](NOC/LEIAME.md#problemas-comuns). Desinstalar: `power
 
 ## Para quem mantém o projeto
 
-- **Nova versão:** mude `$Version` em `NOC/Manager/NocManager.ps1` e crie um Release com a tag `vX.Y.Z` (aba **Releases → Draft a new release**). O GitHub Actions gera o `Scry-vX.Y.Z.zip` e anexa ao Release. O comando de instalação sempre baixa o último Release.
+- **Nova versão:** mude `$Version` em `NOC/Manager/NocManager.ps1` e crie um Release com a tag `vX.Y.Z` (aba **Releases → Draft a new release**). O GitHub Actions gera o `Scry-vX.Y.Z.zip` e anexa ao Release. Crie o Release **depois** do merge, com o alvo na `main` atual: o Actions confere se a tag bate com o `$Version` e falha se não bater. O comando de instalação sempre baixa o último Release.
 - **Gerar o pacote à mão** (Windows): `powershell -ExecutionPolicy Bypass -File .\Build-Pacote.ps1` (sai em `dist\`).
 - Os `.ps1` precisam ficar em **ASCII** (sem acentos): o Windows PowerShell 5.1 lê UTF-8 sem BOM como ANSI. O workflow falha se achar acento.
 

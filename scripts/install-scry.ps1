@@ -97,7 +97,7 @@
         $api = if ($tag) { "https://api.github.com/repos/$Repo/releases/tags/$tag" } else { "https://api.github.com/repos/$Repo/releases/latest" }
         $rel = (Get-Url $api) | ConvertFrom-Json
         $asset = @($rel.assets | Where-Object { $_.name -like 'Scry-v*.zip' }) | Select-Object -First 1
-        if (-not $asset) { Fail "O Release $($rel.tag_name) nao tem o pacote Scry-v*.zip anexado (o GitHub Actions ainda esta gerando? Tente em 1 minuto)." }
+        if (-not $asset) { Fail "O Release $($rel.tag_name) nao tem o pacote Scry-v*.zip anexado (o GitHub Actions ainda esta gerando? Tente em 1 minuto. Se o Actions falhou, a tag pode nao bater com a versao do codigo)." }
         $zipUrl = $asset.browser_download_url; $zipNome = $asset.name
       } catch {
         if ($_.Exception.Message -like 'Scry:*') { throw }
