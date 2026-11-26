@@ -559,7 +559,7 @@ const panelOf = (n) => (cfg.paineis || []).find(p => Number(p.n) === n);
 const mosaic = () => (cfg && cfg.mosaico) || [];
 const areaOf = (n) => mosaic().find(a => Number(a.n) === n) || null;
 const absorbedBy = (n) => { const a = mosaic().find(a => Number(a.n) !== n && (a.paineis || []).map(Number).includes(n)); return a ? Number(a.n) : null; };
-const visiblePanels = () => { const v = []; for (let n = 0; n < N_PANELS; n++) if (absorbedBy(n) === null) v.push(n); return v; };
+const visiblePanels = () => { const v = []; for (let n = 0; n < N_PANELS; n++) if (absorbedBy(n) === null && panelOf(n)) v.push(n); return v; };
 const mosSig = (m) => JSON.stringify((m || []).map(a => [Number(a.n), (a.paineis || []).map(Number).sort((x, y) => x - y).join(","), a.escala || "ampliar"]).sort((a, b) => a[0] - b[0]));
 function areaLabel(a) {
   const t = layout().tiles.find(x => Number(x.n) === Number(a.n)) || { w: 1920, h: 1080 };
@@ -881,6 +881,15 @@ function renderStatus() {
   let online = 0;
   for (const s of st.paineis) {
     const n = s.n, card = $("card" + n); if (!card || s.absorvido != null) continue;
+    if (s.vazio) {
+      // painel sem dashboard (monitor novo): sem janela de proposito, nao e problema
+      delete busy[n]; renderBusy(n);
+      $("img" + n).classList.add("hidden"); const ph = $("ph" + n); ph.classList.remove("hidden");
+      ph.textContent = can("operador") ? "arraste um dashboard da biblioteca para cá" : "sem dashboard";
+      card.classList.remove("s-ok", "s-load", "s-old", "s-off", "s-pause"); card.classList.add("s-pause");
+      const pill = $("pill" + n); pill.className = "pill s-pause"; $("pillt" + n).textContent = "vazio";
+      pill.title = "Painel sem dashboard"; continue;
+    }
     if (s.online) online++;
     // miniatura: so troca quando o servidor tem uma nova (sem piscar, sem tráfego à toa)
     if (s.imgT && shownT[n] !== s.imgT) {

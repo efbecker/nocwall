@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.8.0'
+$Version     = '1.8.1'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -281,7 +281,13 @@ function Get-StableLibId([string]$Url) {
   try { $h = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Url)) } finally { $sha.Dispose() }
   return ('b' + (-join ($h[0..4] | ForEach-Object { $_.ToString('x2') })))
 }
-function Save-Config($c) { Write-JsonFile $CfgFile $c }
+function Save-Config($c) { Write-JsonFile $CfgFile $c; Update-EmptyCache $c }
+# Paineis sem dashboard (monitor novo, ainda vazio): sem janela de proposito - sem alerta, sem vigia, sem reabrir
+function Update-EmptyCache($c) {
+  $com = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $com[[int]$p.n] = 1 } }
+  $v = @{}; for ($i = 0; $i -lt $PanelCount; $i++) { if (-not $com.ContainsKey($i)) { $v[$i] = $true } }
+  $Cache['vazios'] = $v
+}
 
 # ---------------------------------------------------------------- mosaico (paineis mesclados)
 # cfg.mosaico = @( { n = <ancora>; paineis = @(4,5,6,7); w = 3840; h = 2160; escala = 'ampliar'|'espaco' } )
@@ -510,6 +516,17 @@ $WorkerScript = {
       foreach ($n in @($abs.Keys)) {
         $Cache["st$n"] = [pscustomobject]@{ n = $n; online = $false; urlAtual = $null; absorvido = $abs[$n] }
         foreach ($k in "img$n", "imgT$n", "pedido$n", "recarregar$n") { $Cache.Remove($k) }
+      }
+      # paineis vazios (sem dashboard): mesmo tratamento - daqui para baixo $abs pula os dois
+      $vz = $Cache['vazios']
+      if ($vz -and $vz.Count) {
+        $abs = $abs.Clone()
+        foreach ($n in @($vz.Keys)) {
+          if ($abs.ContainsKey($n)) { continue }
+          $Cache["st$n"] = [pscustomobject]@{ n = $n; online = $false; urlAtual = $null; vazio = $true }
+          foreach ($k in "img$n", "imgT$n", "pedido$n", "recarregar$n", "al$n") { $Cache.Remove($k) }
+          $abs[$n] = -1
+        }
       }
 
       # recarregamentos agendados (Recarregar tudo = um painel a cada 1,5 s)
@@ -802,7 +819,8 @@ function Update-MosaicCache($Mosaic) {
 
 function Get-VisiblePanels {
   $abs = $Cache['absorvidos']; if (-not $abs) { $abs = @{} }
-  return @(0..($PanelCount - 1) | Where-Object { -not $abs.ContainsKey($_) })
+  $vz = $Cache['vazios']; if (-not $vz) { $vz = @{} }
+  return @(0..($PanelCount - 1) | Where-Object { -not $abs.ContainsKey($_) -and -not $vz.ContainsKey($_) })
 }
 
 # Aplica um estado completo (paineis + mosaico). Paineis de areas que mudaram sao reabertos
@@ -1321,6 +1339,7 @@ function Invoke-Route($Ctx) {
   if ($path -eq '/api/status' -and $method -eq 'GET') {
     $Cache['_visto'] = Get-Date
     $abs = $Cache['absorvidos']; if (-not $abs) { $abs = @{} }
+    $vz = $Cache['vazios']; if (-not $vz) { $vz = @{} }
     $st = foreach ($n in 0..($PanelCount - 1)) {
       $c = $Cache["st$n"]
       $ab = if ($abs.ContainsKey($n)) { $abs[$n] } else { $null }
@@ -1331,6 +1350,7 @@ function Invoke-Route($Ctx) {
         imgT      = $(if ($null -eq $ab) { $Cache["imgT$n"] } else { $null })
         pendente  = [bool]($null -eq $ab -and ($Cache["pedido$n"] -or $Cache["recarregar$n"]))
         absorvido = $ab
+        vazio     = [bool]($null -eq $ab -and $vz.ContainsKey($n))
         alerta    = $(if ($null -eq $ab) { $Cache["al$n"] } else { $null })
       }
     }
@@ -1789,7 +1809,7 @@ catch {
 }
 # pausa sobrevive a reinicios do gerenciador e do PC
 if (Test-Path $PauseFile) { try { $Cache['pausa'] = Read-JsonFile $PauseFile } catch {} }
-try { $c0 = Get-Config; Update-MosaicCache (Get-Mosaic $c0); Update-ManutCache $c0 } catch { Write-Diag "AVISO paineis.json ilegivel: $($_.Exception.Message)" }
+try { $c0 = Get-Config; Update-MosaicCache (Get-Mosaic $c0); Update-ManutCache $c0; Update-EmptyCache $c0 } catch { Write-Diag "AVISO paineis.json ilegivel: $($_.Exception.Message)" }
 # reinicios por memoria nas ultimas 24 h (para o /api/saude)
 try {
   $lim = (Get-Date).AddHours(-24).ToString('yyyy-MM-dd HH:mm:ss')
