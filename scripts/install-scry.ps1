@@ -33,6 +33,42 @@
     return $LASTEXITCODE
   }
 
+  # Baixa um endereco: texto (sem $OutFile) ou arquivo. Tenta o .NET e, se falhar, o curl.exe do Windows.
+  function Get-Url([string]$Url, [string]$OutFile) {
+    try {
+      $wc = New-Object Net.WebClient
+      $wc.Headers['User-Agent'] = 'scry-installer'
+      if ($OutFile) { $wc.DownloadFile($Url, $OutFile); return $null }
+      $wc.Encoding = [Text.Encoding]::UTF8
+      return $wc.DownloadString($Url)
+    } catch {
+      $netErr = $_.Exception.Message; $ErrorActionPreference = 'Continue'
+      $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+      if (-not (Test-Path $curl)) { throw $netErr }
+      $tmp = if ($OutFile) { $OutFile } else { [IO.Path]::GetTempFileName() }
+      & $curl -fsL -A scry-installer -o $tmp $Url
+      if ($LASTEXITCODE -ne 0) { throw "$netErr / curl.exe codigo $LASTEXITCODE" }
+      if ($OutFile) { return $null }
+      try { return [IO.File]::ReadAllText($tmp, [Text.Encoding]::UTF8) } finally { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+    }
+  }
+  # Endereco final depois dos redirecionamentos (ex.: .../releases/latest -> .../releases/tag/v1.7.1)
+  function Get-RedirectTarget([string]$Url) {
+    try {
+      $rq = [Net.HttpWebRequest]::Create($Url); $rq.AllowAutoRedirect = $false; $rq.UserAgent = 'scry-installer'; $rq.Method = 'HEAD'
+      $rs = $rq.GetResponse(); try { $loc = $rs.Headers['Location'] } finally { $rs.Close() }
+      if ($loc) { return $loc }
+      throw "sem redirecionamento"
+    } catch {
+      $netErr = $_.Exception.Message; $ErrorActionPreference = 'Continue'
+      $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+      if (-not (Test-Path $curl)) { throw $netErr }
+      $out = & $curl -fsIL -A scry-installer -o NUL -w '%{url_effective}' $Url
+      if ($LASTEXITCODE -ne 0 -or -not $out) { throw "$netErr / curl.exe codigo $LASTEXITCODE" }
+      return [string]$out
+    }
+  }
+
   Write-Host ""
   Say "  Scry - Video Wall  |  instalacao com um comando" White
   Say "  ----------------------------------------------" White
@@ -53,13 +89,35 @@
       Copy-Item $env:SCRY_ZIP $zip
       Say "[1/4] Pacote local: $env:SCRY_ZIP"
     } else {
-      $api = if ($env:SCRY_VERSAO) { "https://api.github.com/repos/$Repo/releases/tags/$($env:SCRY_VERSAO)" } else { "https://api.github.com/repos/$Repo/releases/latest" }
-      try { $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'scry-installer'; 'Accept' = 'application/vnd.github+json' } -UseBasicParsing }
-      catch { Fail "Nao consegui consultar os Releases em github.com/$Repo ($($_.Exception.Message)). Sem internet? Use `$env:SCRY_ZIP com um pacote local." }
-      $asset = @($rel.assets | Where-Object { $_.name -like 'Scry-v*.zip' }) | Select-Object -First 1
-      if (-not $asset) { Fail "O Release $($rel.tag_name) nao tem o pacote Scry-v*.zip anexado (o GitHub Actions ainda esta gerando? Tente em 1 minuto)." }
-      Say "[1/4] Baixando $($asset.name) ($([math]::Round($asset.size / 1KB)) KB)..."
-      Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing -Headers @{ 'User-Agent' = 'scry-installer' }
+      # Descobre o Release. 1o pela API do GitHub; se a rede bloquear api.github.com, pelo redirecionamento
+      # de github.com/.../releases/latest. Cada acesso tenta o .NET e depois o curl.exe (que ja baixou este
+      # instalador, entao costuma passar por onde o .NET nao passa: proxy, inspecao de TLS etc.).
+      $tag = $env:SCRY_VERSAO; $zipUrl = $null; $zipNome = $null; $erros = @()
+      try {
+        $api = if ($tag) { "https://api.github.com/repos/$Repo/releases/tags/$tag" } else { "https://api.github.com/repos/$Repo/releases/latest" }
+        $rel = (Get-Url $api) | ConvertFrom-Json
+        $asset = @($rel.assets | Where-Object { $_.name -like 'Scry-v*.zip' }) | Select-Object -First 1
+        if (-not $asset) { Fail "O Release $($rel.tag_name) nao tem o pacote Scry-v*.zip anexado (o GitHub Actions ainda esta gerando? Tente em 1 minuto)." }
+        $zipUrl = $asset.browser_download_url; $zipNome = $asset.name
+      } catch {
+        if ($_.Exception.Message -like 'Scry:*') { throw }
+        $erros += "api.github.com: $($_.Exception.Message)"
+      }
+      if (-not $zipUrl) {
+        try {
+          if (-not $tag) {
+            $final = Get-RedirectTarget "https://github.com/$Repo/releases/latest"
+            if ($final -notmatch '/releases/tag/([^/?#]+)') { throw "o GitHub nao indicou o ultimo Release ($final)" }
+            $tag = $Matches[1]
+          }
+          $zipNome = "Scry-$tag.zip"
+          $zipUrl = "https://github.com/$Repo/releases/download/$tag/$zipNome"
+        } catch { $erros += "github.com: $($_.Exception.Message)" }
+      }
+      if (-not $zipUrl) { Fail ("Nao consegui consultar os Releases em github.com/$Repo (" + ($erros -join '; ') + "). Libere api.github.com e github.com no firewall/proxy, ou use `$env:SCRY_ZIP com um pacote local.") }
+      Say "[1/4] Baixando $zipNome..."
+      try { Get-Url $zipUrl $zip | Out-Null }
+      catch { Fail "Nao consegui baixar $zipUrl ($($_.Exception.Message)). Libere github.com e *.githubusercontent.com no firewall/proxy, ou use `$env:SCRY_ZIP." }
     }
     $pkg = Join-Path $work 'pkg'
     Expand-Archive -Path $zip -DestinationPath $pkg -Force
@@ -119,7 +177,7 @@
       Say "      Google Chrome nao encontrado: instalando o MSI oficial do Google (1 a 3 minutos)..."
       try {
         $msi = Join-Path $work 'chrome.msi'
-        (New-Object Net.WebClient).DownloadFile('https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi', $msi)
+        Get-Url 'https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi' $msi | Out-Null
         $sig = Get-AuthenticodeSignature -FilePath $msi
         if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Google LLC') {
           throw "assinatura do instalador nao confere ($($sig.Status))"
