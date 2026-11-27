@@ -148,6 +148,8 @@ Write-Host "Chrome: $chrome"
 # Mosaico (paineis mesclados pelo Scry): o painel ancora ocupa a area inteira (W x H)
 # e os absorvidos ficam com a janela fechada. Area que nao bate com as telas atuais e ignorada.
 $areas = @{}; $absorvidos = @{}
+$desativados = @{}
+if ($cfg.PSObject.Properties['desativados']) { foreach ($x in @($cfg.desativados)) { $k = -1; if ([int]::TryParse([string]$x, [ref]$k)) { $desativados[$k] = $true } } }
 foreach ($a in @($cfg.mosaico | Where-Object { $_ })) {
   $n = [int]$a.n; $w = [int]$a.w; $h = [int]$a.h
   $membros = @(@($a.paineis) | ForEach-Object { [int]$_ })
@@ -363,6 +365,14 @@ foreach ($p in $paineis) {
     Write-Warning "Sem monitor para o painel $($p.N) ($($p.Nome)) - janela fechada"; continue
   }
   $t    = $tiles[$p.N]
+
+  # painel desativado pelo admin (bloco que nao existe na parede fisica): janela fechada
+  if ($desativados.ContainsKey($p.N)) {
+    Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match $profRx } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Write-Host ("[{0}] desativado - janela fechada" -f $p.N)
+    continue
+  }
 
   # painel mesclado a outro: janela fechada
   if ($absorvidos.ContainsKey($p.N)) {

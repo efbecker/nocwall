@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.12.1'
+$Version     = '1.13.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -340,10 +340,21 @@ function Get-StableLibId([string]$Url) {
 }
 function Save-Config($c) { Write-JsonFile $CfgFile $c; Update-EmptyCache $c; Update-RotCache $c }
 # Paineis sem dashboard (monitor novo, ainda vazio): sem janela de proposito - sem alerta, sem vigia, sem reabrir
+# Paineis desativados pelo admin (bloco que nao existe na parede fisica, ex.: metade de uma saida 4K
+# que so alimenta 2 monitores): nunca abrem e entram como vazios para o vigia.
+function Get-Disabled($c) {
+  $d = @{}
+  if ($c -and $c.PSObject.Properties['desativados']) {
+    foreach ($x in @($c.desativados)) { $k = -1; if ([int]::TryParse([string]$x, [ref]$k) -and $k -ge 0) { $d[$k] = $true } }
+  }
+  return $d
+}
 function Update-EmptyCache($c) {
   $com = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $com[[int]$p.n] = 1 } }
-  $v = @{}; for ($i = 0; $i -lt $PanelCount; $i++) { if (-not $com.ContainsKey($i)) { $v[$i] = $true } }
+  $des = Get-Disabled $c
+  $v = @{}; for ($i = 0; $i -lt $PanelCount; $i++) { if (-not $com.ContainsKey($i) -or $des.ContainsKey($i)) { $v[$i] = $true } }
   $Cache['vazios'] = $v
+  $Cache['desativados'] = $des
   $u = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $u[[int]$p.n] = [string]$p.url } }
   $Cache['urls'] = $u               # link de cada painel (o login automatico reabre o painel nele)
 }
@@ -1937,6 +1948,7 @@ function Invoke-Route($Ctx) {
     $Cache['_visto'] = Get-Date
     $abs = $Cache['absorvidos']; if (-not $abs) { $abs = @{} }
     $vz = $Cache['vazios']; if (-not $vz) { $vz = @{} }
+    $des = $Cache['desativados']; if (-not $des) { $des = @{} }
     $st = foreach ($n in 0..($PanelCount - 1)) {
       $c = $Cache["st$n"]
       $ab = if ($abs.ContainsKey($n)) { $abs[$n] } else { $null }
@@ -1948,6 +1960,7 @@ function Invoke-Route($Ctx) {
         pendente  = [bool]($null -eq $ab -and ($Cache["pedido$n"] -or $Cache["recarregar$n"]))
         absorvido = $ab
         vazio     = [bool]($null -eq $ab -and $vz.ContainsKey($n))
+        desativado = [bool]$des.ContainsKey($n)
         alerta    = $(if ($null -eq $ab) { $Cache["al$n"] } else { $null })
       }
     }
@@ -2128,6 +2141,7 @@ function Invoke-Route($Ctx) {
       $nn = -1
       if (-not [int]::TryParse([string]$it.n, [ref]$nn) -or $nn -lt 0 -or $nn -ge $PanelCount) { Send-Json $Ctx 400 @{ erro = 'Painel invalido.' }; return }
       if ($abs.ContainsKey($nn)) { Send-Json $Ctx 400 @{ erro = "O painel $nn esta mesclado ao painel $($abs[$nn]). Use o painel $($abs[$nn]) ou separe o mosaico." }; return }
+      if ((Get-Disabled $cfg).ContainsKey($nn)) { Send-Json $Ctx 400 @{ erro = "O painel $nn esta desativado. Reative no Mosaico para usar." }; return }
       $err = Test-PanelInput $it; if ($err) { Send-Json $Ctx 400 @{ erro = "Painel ${nn}: $err" }; return }
     }
     $anteriores = @(); $res = @()
@@ -2182,7 +2196,7 @@ function Invoke-Route($Ctx) {
   }
 
   # ---- paineis
-  if ($path -match '^/api/paineis/(\d{1,2})(/(recarregar|reabrir|print))?$') {
+  if ($path -match '^/api/paineis/(\d{1,2})(/(recarregar|reabrir|print|desativar|reativar))?$') {
     $n = [int]$Matches[1]; $acao = $Matches[3]
     if ($n -ge $PanelCount) { Send-Json $Ctx 404 @{ erro = 'Painel inexistente.' }; return }
 
@@ -2195,6 +2209,24 @@ function Invoke-Route($Ctx) {
     if (-not (Test-Role $s 'operador')) { Send-Json $Ctx 403 @{ erro = 'Sem permissao.' }; return }
     $absP = $Cache['absorvidos']
     if ($absP -and $absP.ContainsKey($n)) { Send-Json $Ctx 400 @{ erro = "O painel $n esta mesclado ao painel $($absP[$n]). Use o painel $($absP[$n]) ou separe o mosaico." }; return }
+
+    # desativar/reativar (somente admin): bloco que nao existe na parede fisica some da grade e nunca abre
+    if ($acao -in @('desativar', 'reativar') -and $method -eq 'POST') {
+      if (-not (Test-Role $s 'admin')) { Send-Json $Ctx 403 @{ erro = 'Somente administradores desativam ou reativam paineis.' }; return }
+      $cfg = Get-Config
+      $des = Get-Disabled $cfg
+      if ($acao -eq 'desativar') {
+        if (@(Get-Mosaic $cfg | Where-Object { [int]$_.n -eq $n }).Count) { Send-Json $Ctx 400 @{ erro = "O painel $n esta mesclado com outros. Separe o mosaico antes." }; return }
+        $des[$n] = $true
+      } else { $des.Remove($n) }
+      $lista = @($des.Keys | ForEach-Object { [int]$_ } | Sort-Object)
+      if ($cfg.PSObject.Properties['desativados']) { $cfg.desativados = $lista } else { $cfg | Add-Member -NotePropertyName desativados -NotePropertyValue $lista }
+      Save-Config $cfg
+      Start-WallWatchdog          # fecha (ou reabre) a janela deste painel
+      Write-Audit $who $ip $(if ($acao -eq 'desativar') { 'PAINEL_DESATIVADO' } else { 'PAINEL_REATIVADO' }) "n=$n"
+      Send-Json $Ctx 200 @{ ok = $true; msg = $(if ($acao -eq 'desativar') { "Painel $n desativado: some da grade e nao abre mais." } else { "Painel $n reativado." }) }; return
+    }
+    if ((Get-Disabled (Get-Config)).ContainsKey($n) -and $method -ne 'GET') { Send-Json $Ctx 400 @{ erro = "O painel $n esta desativado. Reative no Mosaico para usar." }; return }
 
     if ($acao -eq 'recarregar' -and $method -eq 'POST') {
       $ok = Invoke-PanelReload $n
@@ -2238,6 +2270,9 @@ function Invoke-Route($Ctx) {
       $r = Resolve-MergeArea $tiles $mos ([int[]]$sel) ([string]$b.escala)
       if ($r.erro) { Send-Json $Ctx 400 @{ erro = $r.erro }; return }
       $area = $r.area
+      $desM = Get-Disabled $cfg
+      $dm = @($area.paineis | Where-Object { $desM.ContainsKey([int]$_) })
+      if ($dm.Count) { Send-Json $Ctx 400 @{ erro = "O painel $($dm -join ', ') esta desativado. Reative antes de mesclar." }; return }
       $novo = @(foreach ($a in $mos) {
         $sobrepoe = $false
         foreach ($p in @($a.paineis)) { if ($area.paineis -contains [int]$p) { $sobrepoe = $true } }
