@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.13.0'
+$Version     = '1.14.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -296,7 +296,7 @@ function Get-NextReopen {
 function Get-Health {
   $abs = $Cache['absorvidos']; if (-not $abs) { $abs = @{} }
   $vis = Get-VisiblePanels
-  $grupos = @{ offline = @(); naoResponde = @(); erro = @(); login = @(); travado = @() }
+  $grupos = @{ offline = @(); naoResponde = @(); erro = @(); login = @(); travado = @(); naoEncontrado = @() }
   $online = 0
   foreach ($n in $vis) {
     $st = $Cache["st$n"]; if ($st -and $st.online) { $online++ }
@@ -312,6 +312,7 @@ function Get-Health {
   if ($grupos.login.Count)       { $prob += "painel(is) $($grupos.login -join ',') na tela de login" }
   if ($grupos.erro.Count)        { $prob += "painel(is) $($grupos.erro -join ',') com erro de rede" }
   if ($grupos.travado.Count)     { $prob += "painel(is) $($grupos.travado -join ',') com imagem congelada" }
+  if ($grupos.naoEncontrado.Count) { $prob += "painel(is) $($grupos.naoEncontrado -join ',') com 'nao encontrado' do Grafana" }
   if ($null -ne $ram -and $ram -gt 90) { $prob += "RAM do PC em $ram%" }
   if ($cert -and $cert.dias -lt 30) { $prob += "certificado vence em $($cert.dias) dias" }
   $grave = $grupos.offline.Count + $grupos.naoResponde.Count + $grupos.login.Count
@@ -324,7 +325,7 @@ function Get-Health {
       pausada = [bool]$pz; pausaAte = $(if ($pz) { $pz.ate } else { $null })
       problema = $(if ($wd) { $wd.problema } else { $null })
       janelas = $vis.Count; online = $online; mescladas = $abs.Count
-      offline = @($grupos.offline); naoResponde = @($grupos.naoResponde); login = @($grupos.login); erro = @($grupos.erro); travado = @($grupos.travado)
+      offline = @($grupos.offline); naoResponde = @($grupos.naoResponde); login = @($grupos.login); erro = @($grupos.erro); travado = @($grupos.travado); naoEncontrado = @($grupos.naoEncontrado)
     }
     pc = $(if ($pc) { [ordered]@{ ramPct = $ram; cpu = $pc.cpu; chromeMB = $pc.chromeMB; uptimeH = $pc.uptimeH } } else { $null })
     gerenciador = [ordered]@{ memMB = $(if ($pc) { $pc.managerMB } else { $null }); uptimeMin = [int]((Get-Date) - $StartedAt).TotalMinutes; reiniciosMemoria24h = [int]$Cache['reinicios24h'] }
@@ -338,7 +339,7 @@ function Get-StableLibId([string]$Url) {
   try { $h = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Url)) } finally { $sha.Dispose() }
   return ('b' + (-join ($h[0..4] | ForEach-Object { $_.ToString('x2') })))
 }
-function Save-Config($c) { Write-JsonFile $CfgFile $c; Update-EmptyCache $c; Update-RotCache $c }
+function Save-Config($c) { try { [void](Repair-GrafanaOrgIds $c) } catch {}; Write-JsonFile $CfgFile $c; Update-EmptyCache $c; Update-RotCache $c }
 # Paineis sem dashboard (monitor novo, ainda vazio): sem janela de proposito - sem alerta, sem vigia, sem reabrir
 # Paineis desativados pelo admin (bloco que nao existe na parede fisica, ex.: metade de uma saida 4K
 # que so alimenta 2 monitores): nunca abrem e entram como vazios para o vigia.
@@ -449,6 +450,17 @@ function Test-PanelInput($b) {
 # ---------------------------------------------------------------- Chrome DevTools Protocol
 # Codigo compartilhado com o worker de miniaturas/status (roda em outro runspace).
 $CdpCode = @'
+# (no worker tambem: a auto-correcao reabre o link do painel)
+# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
+# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
+function Add-GrafanaKiosk([string]$Url) {
+  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+  $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
+  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
+  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
+  return $Url + $sep + 'kiosk' + $frag
+}
+
 function Get-CdpTarget([int]$N) {
   $resp = $null
   try {
@@ -560,9 +572,13 @@ $WorkerScript = {
 
   # ---- manutencao automatica: estado local do worker (hashtables: alteraveis de dentro das funcoes)
   $sha = [Security.Cryptography.SHA1]::Create()
-  $hash = @{}; $hashDesde = @{}; $semResp = @{}; $cond = @{}; $ultAcao = @{}; $ultTipo = @{}; $fila = @{}; $erroPg = @{}; $congAcoes = @{}
+  $hash = @{}; $hashDesde = @{}; $semResp = @{}; $cond = @{}; $ultAcao = @{}; $ultTipo = @{}; $fila = @{}; $erroPg = @{}; $naoAchou = @{}; $congAcoes = @{}
   $ws = @{ lastTask = [datetime]::MinValue; lastWd = [datetime]::MinValue; wdIdx = -1; lastCert = [datetime]::MinValue; fimFila = $null }
   try { $Cache['reabertoEm'] = [string]((Get-Content $ManutStateFile -Raw | ConvertFrom-Json).reabertoEm) } catch {}
+  $PageCheckJs = @'
+location.protocol + "|" + ((window.grafanaBootData && (document.querySelector('[data-testid="data-testid entity-not-found"]') ||
+  [].some.call(document.querySelectorAll("h1,h2,h4"), function (h) { return /^\s*(page|dashboard|p\u00e1gina)\s+(not found|n\u00e3o encontrad[ao])\s*$/i.test(h.textContent || ""); }))) ? "nao-encontrado" : "ok")
+'@
   function Add-Evento([string]$Txt) {
     $t2 = Get-Date
     $Cache['eventos'] = @(@("$($t2.ToString('dd/MM HH:mm')) $Txt") + @($Cache['eventos'] | Where-Object { $_ }) | Select-Object -First 30)
@@ -827,11 +843,14 @@ $WorkerScript = {
             }
             if ($n -eq $wd) {
               # pagina de erro do Chrome (sem rede/DNS): a lista de abas mantem o endereco original, so a pagina sabe
-              $pr = Invoke-CdpCall $t.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = 'location.protocol'; returnByValue = $true } 5
-              $erroPg[$n] = ([string]$pr.result.value -eq 'chrome-error:')
+              # e a tela "Dashboard/Page not found" do Grafana (o endereco parece certo, a pagina nao)
+              $pr = Invoke-CdpCall $t.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = $PageCheckJs; returnByValue = $true } 5
+              $pv = [string]$pr.result.value
+              $erroPg[$n] = $pv.StartsWith('chrome-error:')
+              $naoAchou[$n] = $pv.EndsWith('|nao-encontrado')
             }
           } catch { if ($n -eq $wd) { $semResp[$n] = [int]$semResp[$n] + 1 } }
-        } elseif (-not $t) { $Cache.Remove("img$n"); $Cache.Remove("imgT$n"); $semResp[$n] = 0; $hash.Remove($n); $erroPg.Remove($n) }
+        } elseif (-not $t) { $Cache.Remove("img$n"); $Cache.Remove("imgT$n"); $semResp[$n] = 0; $hash.Remove($n); $erroPg.Remove($n); $naoAchou.Remove($n) }
       }
 
       # ---- login automatico em sites cadastrados (a cada 10 s, so nos paineis de um site com login)
@@ -936,13 +955,14 @@ $WorkerScript = {
           if (-not $s -or -not $s.online) { $c = 'offline' }
           elseif ([int]$semResp[$n] -ge 3) { $c = 'naoResponde' }
           elseif ($url -like 'chrome-error:*' -or $erroPg[$n]) { $c = 'erro' }
+          elseif ($naoAchou[$n]) { $c = 'naoEncontrado' }
           # site com login cadastrado: vale o que a pagina mostra (campo de senha), nao o endereco
           elseif ($naLogin[$n] -or (-not $siteDe.ContainsKey($n) -and -not $loginUrlOk[$n] -and $url -match '^https?://[^?#]+/login([?#/]|$)')) { $c = 'login' }
           elseif ($man.congeladoMin -gt 0 -and $url -match '[?&]refresh=' -and $hashDesde[$n] -and ($now - $hashDesde[$n]).TotalMinutes -ge $man.congeladoMin) { $c = 'travado' }
           if (-not $c) { $Cache.Remove("al$n"); $cond.Remove($n); continue }
           if (-not $cond[$n] -or $cond[$n].c -ne $c) { $cond[$n] = @{ c = $c; t = $now } }
           $dur = ($now - $cond[$n].t).TotalSeconds
-          $limite = @{ offline = 120; naoResponde = 0; erro = 60; login = 120; travado = 0 }[$c]
+          $limite = @{ offline = 120; naoResponde = 0; erro = 60; login = 120; travado = 0; naoEncontrado = 20 }[$c]
           if ($dur -lt $limite) { $Cache.Remove("al$n"); continue }
           $desde = if ($c -eq 'travado') { $hashDesde[$n] } else { $cond[$n].t }
           $Cache["al$n"] = [pscustomobject]@{ estado = $c; desde = $desde.ToString('s') }
@@ -961,6 +981,14 @@ $WorkerScript = {
               'naoResponde' { Stop-Profile $n; Start-Sleep -Milliseconds 1500; Invoke-WallTask -Forcar; $semResp[$n] = 0; $acao = "painel $n nao respondia: janela reaberta" }
               'erro'        { $t = Get-CdpTarget $n; if ($t) { Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.reload' @{ ignoreCache = $true } | Out-Null }; $acao = "painel $n com erro de rede: recarregado" }
               'login'       { Invoke-WallTask -Forcar; $acao = "painel $n na tela de login do Grafana: login automatico refeito" }
+              'naoEncontrado' {
+                # o link do painel ja vem com o orgId certo (o gerenciador grava): abre de novo
+                $lk = ''; if ($Cache['urls']) { $lk = [string]$Cache['urls'][$n] }
+                $t = Get-CdpTarget $n
+                if ($t -and $lk) { Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = (Add-GrafanaKiosk $lk) } 5 | Out-Null }
+                $naoAchou.Remove($n)
+                $acao = "painel $n mostrava 'nao encontrado' do Grafana (aberto: $url): link do painel aberto de novo"
+              }
               'travado'     {
                 if ([int]$congAcoes[$n] -ge 2) {
                   Stop-Profile $n; Start-Sleep -Milliseconds 1500; Invoke-WallTask -Forcar; $ultTipo[$n] = 'reabrir'
@@ -1031,14 +1059,135 @@ function Start-Worker {
 # Pede uma miniatura nova do painel daqui a $Seg segundos (tempo da pagina carregar)
 function Request-Shot([int]$N, [int]$Seg = 3) { $Cache["pedido$N"] = (Get-Date).AddSeconds($Seg) }
 
-# Grafana em tela cheia: acrescenta "kiosk" aos links de dashboard (/d/...) que ainda nao tem.
-# Sem menu lateral nem barra de cima. Quem quiser outro modo escreve o kiosk no proprio link.
-function Add-GrafanaKiosk([string]$Url) {
-  if ($Url -notmatch '^https?://[^?#]*/(d|d-solo)/[^/?#]+') { return $Url }
+# ---------------------------------------------------------------- Grafana: organizacao de cada dashboard
+# Todos os paineis entram no Grafana com o MESMO usuario, e o Grafana guarda UMA organizacao ativa por
+# usuario: abrir um link com orgId=2 troca a organizacao ativa dele (para todos os paineis). Um link SEM
+# orgId abre na organizacao ativa do momento; se outro painel (ou o rodizio) acabou de trocar, o dashboard
+# "nao existe" ali e o Grafana mostra "Dashboard not found" - e reabrir nao resolve. Por isso o Scry
+# descobre a organizacao de cada dashboard e grava o orgId no link (paineis, cenarios e biblioteca).
+# A consulta roda dentro de um painel ja aberto naquele Grafana (mesma sessao, nada de senha) com o
+# cabecalho X-Grafana-Org-Id, que NAO muda a organizacao ativa.
+$GrafanaOrgs = @{}            # "origem+subpasta|uid" -> orgId (-1 = Grafana com uma organizacao so: nao precisa)
+$GrafanaOrgTry = @{}          # "origem+subpasta|uid" -> ultima tentativa (nao achou: tenta de novo em 10 min)
+$GrafanaOrgCheck = [datetime]::MinValue
+
+# Link de dashboard do Grafana SEM orgId -> @{ base; uid; chave }; $null nos outros
+function Get-GrafanaDashRef([string]$Url) {
+  if ($Url -notmatch '^(https?://[^/?#]+)((?:/[^?#]*)?)/(?:d|d-solo)/([^/?#]+)') { return $null }
+  $base = $Matches[1].ToLower() + $Matches[2]; $uid = [Uri]::UnescapeDataString($Matches[3])
+  $q = $Url.Split('#')[0]
+  if ($q -match '[?&]orgId=') { return $null }
+  return @{ base = $base; uid = $uid; chave = "$base|$uid" }
+}
+
+# Poe o orgId (ja descoberto) no link; sem orgId conhecido, devolve o link como esta
+function Add-GrafanaOrgId([string]$Url) {
+  $r = Get-GrafanaDashRef $Url
+  if (-not $r) { return $Url }
+  $org = [int]$GrafanaOrgs[$r.chave]
+  if ($org -le 0) { return $Url }
   $frag = ''; $i = $Url.IndexOf('#'); if ($i -ge 0) { $frag = $Url.Substring($i); $Url = $Url.Substring(0, $i) }
-  if ($Url -match '[?&]kiosk(=|&|$)') { return $Url + $frag }
-  $sep = if ($Url.Contains('?')) { '&' } else { '?' }
-  return $Url + $sep + 'kiosk' + $frag
+  $q = $Url.IndexOf('?')
+  if ($q -lt 0) { return $Url + '?orgId=' + $org + $frag }
+  $resto = $Url.Substring($q + 1)
+  if (-not $resto) { return $Url + 'orgId=' + $org + $frag }
+  return $Url.Substring(0, $q + 1) + 'orgId=' + $org + '&' + $resto + $frag
+}
+
+# Grava o orgId conhecido em todos os links da configuracao. Devolve os paineis da parede que mudaram.
+function Repair-GrafanaOrgIds($c) {
+  $mud = @(); $outros = 0
+  foreach ($p in @($c.paineis)) {
+    if (-not $p -or -not $p.url) { continue }
+    $nu = Add-GrafanaOrgId ([string]$p.url); if ($nu -ne [string]$p.url) { $p.url = $nu; $mud += [int]$p.n }
+  }
+  foreach ($cen in @($c.cenarios)) {
+    foreach ($p in @($cen.paineis)) {
+      if (-not $p -or -not $p.url) { continue }
+      $nu = Add-GrafanaOrgId ([string]$p.url); if ($nu -ne [string]$p.url) { $p.url = $nu; $outros++ }
+    }
+  }
+  foreach ($b in @($c.biblioteca)) {
+    if (-not $b -or -not $b.url) { continue }
+    $nu = Add-GrafanaOrgId ([string]$b.url); if ($nu -ne [string]$b.url) { $b.url = $nu; $outros++ }
+  }
+  return @{ paineis = $mud; total = $mud.Count + $outros }
+}
+
+$GrafanaOrgJs = @'
+(async function (uids) {
+  var b = window.grafanaBootData;
+  if (!b || !b.settings) return JSON.stringify({ grafana: false });
+  var sub = b.settings.appSubUrl || "";
+  var r = await fetch(sub + "/api/user/orgs", { credentials: "same-origin" });
+  if (!r.ok) return JSON.stringify({ grafana: true, erro: "orgs HTTP " + r.status });
+  var orgs = await r.json(), map = {};
+  for (var i = 0; i < uids.length; i++) {
+    map[uids[i]] = 0;
+    if (orgs.length < 2) { map[uids[i]] = -1; continue; }
+    for (var j = 0; j < orgs.length; j++) {
+      var d = await fetch(sub + "/api/dashboards/uid/" + encodeURIComponent(uids[i]),
+        { credentials: "same-origin", headers: { "X-Grafana-Org-Id": String(orgs[j].orgId) } });
+      if (d.ok) { map[uids[i]] = orgs[j].orgId; break; }
+    }
+  }
+  return JSON.stringify({ grafana: true, sub: sub, map: map });
+})
+'@
+
+# No laco principal (a cada 30 s): descobre a organizacao dos links novos, grava o orgId e reabre o
+# link nos paineis da parede que mudaram.
+function Invoke-GrafanaOrgTick {
+  if (((Get-Date) - $script:GrafanaOrgCheck).TotalSeconds -lt 30) { return }
+  $script:GrafanaOrgCheck = Get-Date
+  if ($script:SetupPending -or (Get-Pause)) { return }
+  $cfg = Get-Config
+  $pend = @{}
+  foreach ($x in @(@($cfg.paineis) + @($cfg.cenarios | ForEach-Object { $_.paineis }) + @($cfg.biblioteca))) {
+    if (-not $x -or -not $x.url) { continue }
+    $r = Get-GrafanaDashRef ([string]$x.url)
+    if (-not $r -or $GrafanaOrgs.ContainsKey($r.chave)) { continue }
+    if ($GrafanaOrgTry[$r.chave] -and ((Get-Date) - $GrafanaOrgTry[$r.chave]).TotalMinutes -lt 10) { continue }
+    if (-not $pend[$r.base]) { $pend[$r.base] = @{} }
+    $pend[$r.base][$r.uid] = $r.chave
+  }
+  foreach ($base in @($pend.Keys)) {
+    # um painel aberto neste Grafana (endereco visto pelo worker)
+    $t = $null
+    for ($n = 0; $n -lt $PanelCount -and -not $t; $n++) {
+      $st = $Cache["st$n"]
+      if ($st -and $st.online -and ([string]$st.urlAtual).StartsWith("$base/", [StringComparison]::OrdinalIgnoreCase)) { $t = Get-CdpTarget $n }
+    }
+    if (-not $t) { continue }        # nenhum painel neste Grafana agora: tenta no proximo ciclo
+    $uids = @($pend[$base].Keys)
+    foreach ($u in $uids) { $GrafanaOrgTry[$pend[$base][$u]] = Get-Date }
+    try {
+      $js = $GrafanaOrgJs + '(' + (ConvertTo-Json -InputObject @($uids) -Compress) + ')'
+      $res = Invoke-CdpCall $t.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = $js; awaitPromise = $true; returnByValue = $true } 20
+      $o = [string]$res.result.value | ConvertFrom-Json
+    } catch { Write-Diag "GRAFANA_ORG $base falhou: $($_.Exception.Message)"; continue }
+    if (-not $o -or -not $o.grafana) { continue }
+    if ($o.erro) { Write-Diag "GRAFANA_ORG $base falhou: $($o.erro)"; continue }
+    foreach ($u in $uids) {
+      $pr = $o.map.PSObject.Properties[$u]
+      $org = if ($pr) { [int]$pr.Value } else { 0 }
+      if ($org -ne 0) { $GrafanaOrgs[$pend[$base][$u]] = $org }
+      Write-Diag "GRAFANA_ORG $base uid=$u org=$(if ($org -gt 0) { $org } elseif ($org -lt 0) { 'unica' } else { 'nao achada' })"
+    }
+  }
+  $rep = Repair-GrafanaOrgIds $cfg
+  if (-not $rep.total) { return }
+  Save-Config $cfg
+  Write-Audit 'sistema' 'local' 'GRAFANA_ORGID' "orgId gravado em $($rep.total) link(s); paineis reabertos no link novo: $($rep.paineis -join ',')"
+  $abs = $Cache['absorvidos']; if (-not $abs) { $abs = @{} }
+  foreach ($n in $rep.paineis) {
+    if ($n -ge $PanelCount -or $abs.ContainsKey($n)) { continue }
+    $p = $cfg.paineis | Where-Object { [int]$_.n -eq $n } | Select-Object -First 1
+    try { if (Invoke-PanelNavigate $n ([string]$p.url)) { Request-Shot $n 5 } } catch {}
+  }
+}
+function Invoke-GrafanaOrgSafe {
+  try { Invoke-GrafanaOrgTick } catch { Write-Diag "GRAFANA_ORG erro: $($_.Exception.Message) (linha $($_.InvocationInfo.ScriptLineNumber))" }
 }
 
 # Pre-carga do rodizio: painel -> link que o Chrome ja esta montando escondido (speculation rules)
@@ -1047,7 +1196,7 @@ $Prerender = @{}
 function Invoke-PanelNavigate([int]$N, [string]$Url) {
   $t = Get-CdpTarget $N
   if (-not $t) { return $false }
-  $dest = Add-GrafanaKiosk $Url
+  $dest = Add-GrafanaKiosk (Add-GrafanaOrgId $Url)
   $pre = $script:Prerender[$N]; $script:Prerender.Remove($N)
   if ($pre -and $pre -eq $dest) {
     # a pagina pre-carregada so e aproveitada numa navegacao feita pela propria pagina (e sem o
@@ -1300,7 +1449,7 @@ function Invoke-RotPreload([string]$Id) {
     $op = $cfg.paineis | Where-Object { [int]$_.n -eq $n } | Select-Object -First 1
     if (-not $op -or -not [string]$op.url -or [string]$op.url -eq [string]$np.url) { continue }
     if ([math]::Abs([double]$np.zoom - [double]$op.zoom) -gt 0.001) { continue }
-    try { if (Invoke-PanelPrerender $n (Add-GrafanaKiosk ([string]$np.url))) { $qtd++ } } catch {}
+    try { if (Invoke-PanelPrerender $n (Add-GrafanaKiosk (Add-GrafanaOrgId ([string]$np.url)))) { $qtd++ } } catch {}
   }
   return $qtd
 }
@@ -2598,7 +2747,7 @@ try {
   $pending = $null
   while ($listener.IsListening) {
     if (-not $pending) { $pending = $listener.GetContextAsync() }
-    if (-not $pending.Wait(5000)) { Test-Health; Invoke-RotationSafe; continue }     # sem requisicao: saude e rodizio
+    if (-not $pending.Wait(5000)) { Test-Health; Invoke-RotationSafe; Invoke-GrafanaOrgSafe; continue }     # sem requisicao: saude e rodizio
     $ctx = $pending.Result; $pending = $null
     if (-not (Test-IpAllowed $ctx.Request.RemoteEndPoint.Address)) {
       try {
@@ -2628,6 +2777,7 @@ try {
     foreach ($k in @($Sessions.Keys)) { if ($Sessions[$k].exp -lt (Get-Date)) { $Sessions.Remove($k) } }
     Test-Health
     Invoke-RotationSafe
+    Invoke-GrafanaOrgSafe
   }
 } finally {
   $listener.Stop()
