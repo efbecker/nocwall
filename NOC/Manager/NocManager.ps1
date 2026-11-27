@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.8.1'
+$Version     = '1.9.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -217,7 +217,39 @@ function Get-Config {
   if (-not $c.PSObject.Properties['manutencao']) {
     $c | Add-Member -NotePropertyName manutencao -NotePropertyValue ([pscustomobject]@{ autoCorrigir = $true; congeladoMin = 15; reabrirHora = '04:00' })
   }
+  if (-not $c.PSObject.Properties['rodizio'] -or -not $c.rodizio) { $c | Add-Member -NotePropertyName rodizio -NotePropertyValue (New-RotDefault) -Force }
+  $def = New-RotDefault          # versao antiga do arquivo: completa o que faltar
+  foreach ($pr in $def.PSObject.Properties) { if (-not $c.rodizio.PSObject.Properties[$pr.Name]) { $c.rodizio | Add-Member -NotePropertyName $pr.Name -NotePropertyValue $pr.Value } }
+  if (-not $c.rodizio.agenda) { $c.rodizio.agenda = $def.agenda }
+  foreach ($pr in $def.agenda.PSObject.Properties) { if (-not $c.rodizio.agenda.PSObject.Properties[$pr.Name]) { $c.rodizio.agenda | Add-Member -NotePropertyName $pr.Name -NotePropertyValue $pr.Value } }
+  $c.rodizio.itens = @($c.rodizio.itens | Where-Object { $_ })
+  $c.rodizio.agenda.dias = @($c.rodizio.agenda.dias | Where-Object { $null -ne $_ })
   return $c
+}
+
+# ---------------------------------------------------------------- rodizio de cenarios (config)
+# cfg.rodizio = { ativo; pausado; padraoSeg; itens = @({ id; seg (0 = padrao) }); preCarregar;
+#                 segurarVermelho; vermelhoPct; segurarMaxMin; agenda = { ativo; inicio; fim; dias = @(0..6); foraCenario } }
+function New-RotDefault {
+  return [pscustomobject]@{
+    ativo = $false; pausado = $false; padraoSeg = 300; itens = @(); preCarregar = $true
+    segurarVermelho = $false; vermelhoPct = 3; segurarMaxMin = 30
+    agenda = [pscustomobject]@{ ativo = $false; inicio = '07:00'; fim = '19:00'; dias = @(1, 2, 3, 4, 5); foraCenario = '' }
+  }
+}
+
+# Copia leve do rodizio + nomes dos cenarios (o laco principal confere a cada 5 s sem ler o paineis.json)
+function Update-RotCache($c) {
+  $r = $c.rodizio; if (-not $r) { $r = New-RotDefault }
+  $nomes = @{}; foreach ($x in @($c.cenarios)) { if ($x) { $nomes[[string]$x.id] = [string]$x.nome } }
+  $itens = @(foreach ($i in @($r.itens)) { if ($i -and $nomes.ContainsKey([string]$i.id)) { [pscustomobject]@{ id = [string]$i.id; seg = [int]$i.seg } } })
+  $script:RotCfg = @{
+    ativo = [bool]$r.ativo; pausado = [bool]$r.pausado; padraoSeg = [math]::Max(30, [int]$r.padraoSeg); itens = $itens
+    preCarregar = [bool]$r.preCarregar; segurarVermelho = [bool]$r.segurarVermelho
+    vermelhoPct = [double]$r.vermelhoPct; segurarMaxMin = [int]$r.segurarMaxMin
+    agenda = $r.agenda; nomes = $nomes; cenarioAtivo = [string]$c.cenarioAtivo
+  }
+  $Cache['rotRed'] = [bool]($r.ativo -and $r.segurarVermelho)
 }
 
 # Manutencao automatica em vigor -> cache lido pelo worker
@@ -281,7 +313,7 @@ function Get-StableLibId([string]$Url) {
   try { $h = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Url)) } finally { $sha.Dispose() }
   return ('b' + (-join ($h[0..4] | ForEach-Object { $_.ToString('x2') })))
 }
-function Save-Config($c) { Write-JsonFile $CfgFile $c; Update-EmptyCache $c }
+function Save-Config($c) { Write-JsonFile $CfgFile $c; Update-EmptyCache $c; Update-RotCache $c }
 # Paineis sem dashboard (monitor novo, ainda vazio): sem janela de proposito - sem alerta, sem vigia, sem reabrir
 function Update-EmptyCache($c) {
   $com = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $com[[int]$p.n] = 1 } }
@@ -451,6 +483,31 @@ function Get-PanelShot([int]$N, $Target, [int]$Width = 480) {
   $shot = Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.captureScreenshot' @{ format = 'jpeg'; quality = 70; fromSurface = $true }
   return (ConvertTo-Thumb ([Convert]::FromBase64String($shot.data)) $Width)
 }
+
+# Quanto da miniatura esta vermelho de alerta (vermelhos do Grafana: #F2495C, #E02F44, #C4162A...), em %.
+# Reduz para 80x45 e conta os pontos bem vermelhos (laranja e vermelho escuro de fundo nao contam).
+function Get-RedPct([byte[]]$Jpeg) {
+  $ms = New-Object IO.MemoryStream(, $Jpeg)
+  $img = [Drawing.Image]::FromStream($ms)
+  $bmp = New-Object Drawing.Bitmap(80, 45, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
+  try {
+    $g = [Drawing.Graphics]::FromImage($bmp); $g.DrawImage($img, 0, 0, 80, 45); $g.Dispose()
+    $bd = $bmp.LockBits((New-Object Drawing.Rectangle(0, 0, 80, 45)), [Drawing.Imaging.ImageLockMode]::ReadOnly, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
+    $stride = $bd.Stride
+    $buf = New-Object byte[] ($stride * 45)
+    [Runtime.InteropServices.Marshal]::Copy($bd.Scan0, $buf, 0, $buf.Length)
+    $bmp.UnlockBits($bd)
+    $red = 0
+    for ($y = 0; $y -lt 45; $y++) {
+      $o = $y * $stride
+      for ($x = 0; $x -lt 80; $x++) {
+        $i = $o + 3 * $x; [int]$b = $buf[$i]; [int]$gr = $buf[$i + 1]; [int]$r = $buf[$i + 2]     # BGR
+        if ($r -ge 170 -and $gr -le 110 -and $b -le 120 -and ($r - $gr) -ge 90) { $red++ }
+      }
+    }
+    return [math]::Round($red * 100.0 / 3600, 1)
+  } finally { $bmp.Dispose(); $img.Dispose(); $ms.Dispose() }
+}
 '@
 . ([scriptblock]::Create($CdpCode))
 
@@ -604,6 +661,8 @@ $WorkerScript = {
             $img = Get-PanelShot $n $t $w
             if ($img) {
               $Cache["img$n"] = $img; $Cache["imgT$n"] = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+              # rodizio que segura o cenario em alerta: mede o vermelho de cada miniatura nova
+              if ($Cache['rotRed']) { try { $Cache["red$n"] = [pscustomobject]@{ pct = (Get-RedPct $img); t = $now } } catch {} }
               $semResp[$n] = 0
               $h = [BitConverter]::ToString($sha.ComputeHash($img))
               if ($hash[$n] -ne $h) {
@@ -734,11 +793,43 @@ function Add-GrafanaKiosk([string]$Url) {
   return $Url + $sep + 'kiosk' + $frag
 }
 
+# Pre-carga do rodizio: painel -> link que o Chrome ja esta montando escondido (speculation rules)
+$Prerender = @{}
+
 function Invoke-PanelNavigate([int]$N, [string]$Url) {
   $t = Get-CdpTarget $N
   if (-not $t) { return $false }
-  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = (Add-GrafanaKiosk $Url) } | Out-Null
+  $dest = Add-GrafanaKiosk $Url
+  $pre = $script:Prerender[$N]; $script:Prerender.Remove($N)
+  if ($pre -and $pre -eq $dest) {
+    # a pagina pre-carregada so e aproveitada numa navegacao feita pela propria pagina (e sem o
+    # DevTools conectado na hora): por isso o location.href vai num setTimeout, depois de desconectar
+    try {
+      $js = 'setTimeout(function(){location.href=' + (ConvertTo-Json -InputObject $dest -Compress) + '},50);1'
+      Invoke-CdpCall $t.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = $js; returnByValue = $true } 5 | Out-Null
+      return $true
+    } catch {}
+  }
+  Invoke-CdpCall $t.webSocketDebuggerUrl 'Page.navigate' @{ url = $dest } | Out-Null
   return $true
+}
+
+# Pede ao Chrome do painel para montar o proximo link escondido (prerender). Na hora da troca a
+# pagina pronta so aparece, sem tela de carregando. So funciona no mesmo endereco (mesmo Grafana);
+# se o Chrome nao puder (memoria, outro site), a troca vira uma navegacao normal.
+function Invoke-PanelPrerender([int]$N, [string]$Dest) {
+  $t = Get-CdpTarget $N
+  if (-not $t) { return $false }
+  try { if (([Uri][string]$t.url).GetLeftPart('Authority') -ne ([Uri]$Dest).GetLeftPart('Authority')) { return $false } } catch { return $false }
+  $js = "(function(u){setTimeout(function(){try{var o=document.getElementById('scry-pre');if(o)o.remove();" +
+        "var s=document.createElement('script');s.type='speculationrules';s.id='scry-pre';" +
+        "s.textContent=JSON.stringify({prerender:[{source:'list',urls:[u],eagerness:'immediate'}]});" +
+        "(document.head||document.documentElement).appendChild(s)}catch(e){}},300);" +
+        "return !!(window.HTMLScriptElement&&HTMLScriptElement.supports&&HTMLScriptElement.supports('speculationrules'))})(" +
+        (ConvertTo-Json -InputObject $Dest -Compress) + ")"
+  $r = Invoke-CdpCall $t.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = $js; returnByValue = $true } 5
+  if ($r -and $r.result -and $r.result.value -eq $true) { $script:Prerender[$N] = $Dest; return $true }
+  return $false
 }
 
 function Invoke-PanelReload([int]$N) {
@@ -823,16 +914,22 @@ function Get-VisiblePanels {
   return @(0..($PanelCount - 1) | Where-Object { -not $abs.ContainsKey($_) -and -not $vz.ContainsKey($_) })
 }
 
+# Paineis cujas areas do mosaico mudam entre dois mosaicos (essas janelas sao reabertas)
+function Get-MosaicAffected($Old, $New) {
+  $oldS = @{}; foreach ($a in @($Old | Where-Object { $_ })) { $oldS[(Get-AreaSig $a)] = $a }
+  $newS = @{}; foreach ($a in @($New | Where-Object { $_ })) { $newS[(Get-AreaSig $a)] = $a }
+  $af = @{}
+  foreach ($k in $oldS.Keys) { if (-not $newS.ContainsKey($k)) { foreach ($p in $oldS[$k].paineis) { $af[[int]$p] = 1 } } }
+  foreach ($k in $newS.Keys) { if (-not $oldS.ContainsKey($k)) { foreach ($p in $newS[$k].paineis) { $af[[int]$p] = 1 } } }
+  return $af
+}
+
 # Aplica um estado completo (paineis + mosaico). Paineis de areas que mudaram sao reabertos
 # (a janela muda de tamanho/zoom); os demais so trocam de link, como sempre.
 function Set-WallState($cfg, $NovosPaineis, $NovoMosaico) {
   $novos = @(Copy-Deep @($NovosPaineis) | Sort-Object { [int]$_.n })
   $NovoMosaico = @($NovoMosaico | Where-Object { $_ })
-  $oldS = @{}; foreach ($a in (Get-Mosaic $cfg)) { $oldS[(Get-AreaSig $a)] = $a }
-  $newS = @{}; foreach ($a in $NovoMosaico) { $newS[(Get-AreaSig $a)] = $a }
-  $afetados = @{}
-  foreach ($k in $oldS.Keys) { if (-not $newS.ContainsKey($k)) { foreach ($p in $oldS[$k].paineis) { $afetados[[int]$p] = 1 } } }
-  foreach ($k in $newS.Keys) { if (-not $oldS.ContainsKey($k)) { foreach ($p in $newS[$k].paineis) { $afetados[[int]$p] = 1 } } }
+  $afetados = Get-MosaicAffected (Get-Mosaic $cfg) $NovoMosaico
   $absNovo = Get-AbsorbedMap $NovoMosaico
   $results = @()
   foreach ($np in $novos) {
@@ -869,6 +966,179 @@ function New-UndoSnapshot($cfg, [string]$MinRole) {
     cenarioAtivo = $cfg.cenarioAtivo; papel = $MinRole; exp = (Get-Date).AddMinutes(15)
   }
   return $id
+}
+
+# ---------------------------------------------------------------- cenario: aplicar (botao e rodizio)
+function Get-ScenarioMosaic($cfg, $cen) {
+  # cenario antigo (sem mosaico) = todos os paineis separados
+  $mosCen = @(); if ($cen.PSObject.Properties['mosaico']) { $mosCen = @($cen.mosaico | Where-Object { $_ }) }
+  $tm = Test-Mosaic (Get-Tiles) $mosCen
+  if ($tm.erro) { return @{ mosaico = @(Get-Mosaic $cfg); aviso = " Mosaico do cenario ignorado ($($tm.erro))." } }
+  return @{ mosaico = @($tm.mosaico); aviso = '' }
+}
+function Invoke-ScenarioApply($cfg, $cen) {
+  $m = Get-ScenarioMosaic $cfg $cen
+  # paineis que o cenario nao define ficam como estao
+  $novos = @($cfg.paineis | Where-Object { $n0 = [int]$_.n; -not ($cen.paineis | Where-Object { [int]$_.n -eq $n0 }) }) + @($cen.paineis)
+  $cfg.cenarioAtivo = [string]$cen.id
+  $r = Set-WallState $cfg $novos $m.mosaico
+  return @{ detalhes = $r.detalhes; afetados = $r.afetados; aviso = $m.aviso }
+}
+
+# ---------------------------------------------------------------- rodizio de cenarios (motor)
+# Roda no laco principal (a cada <= 5 s). Estado so em memoria; a configuracao fica no paineis.json.
+$RotCfg = $null
+$Rot = @{ fase = 'desligado'; trocaEm = $null; proximo = $null; preparado = $false; preEm = $null; preQtd = 0
+          shotsEm = $null; segDesde = $null; liberado = $false; motivo = ''; ultimaTroca = (Get-Date); erro = $null; foraAplicado = $false; hist = @() }
+
+function Get-RotSeg($rc, [string]$Id) {
+  $it = @($rc.itens | Where-Object { $_.id -eq $Id }) | Select-Object -First 1
+  if ($it -and [int]$it.seg -ge 30) { return [int]$it.seg }
+  return [int]$rc.padraoSeg
+}
+# proximo da lista (o ativo fora da lista: volta para o primeiro)
+function Get-RotNext($rc) {
+  $ids = @($rc.itens | ForEach-Object { $_.id })
+  if (-not $ids.Count) { return $null }
+  $i = [array]::IndexOf([string[]]$ids, [string]$rc.cenarioAtivo)
+  return $ids[($i + 1) % $ids.Count]
+}
+# Dentro do horario da agenda? (aceita virar a meia-noite: 19:00 -> 07:00; dias = dia em que a janela comeca)
+function Test-RotAgenda($ag, [datetime]$Now) {
+  if (-not $ag -or -not $ag.ativo) { return $true }
+  try { $ini = [TimeSpan]::Parse([string]$ag.inicio); $fim = [TimeSpan]::Parse([string]$ag.fim) } catch { return $true }
+  $t = $Now.TimeOfDay; $dia = $Now.Date
+  if ($ini -lt $fim) { if ($t -lt $ini -or $t -ge $fim) { return $false } }
+  elseif ($ini -gt $fim) {
+    if ($t -lt $fim) { $dia = $Now.Date.AddDays(-1) }
+    elseif ($t -lt $ini) { return $false }
+  }
+  $dias = @($ag.dias | ForEach-Object { [int]$_ })
+  return (-not $dias.Count -or ($dias -contains [int]$dia.DayOfWeek))
+}
+# Paineis com vermelho acima do limite, medidos depois da ultima troca (miniatura do cenario atual)
+function Get-RotRed($rc) {
+  $lim = $Rot.ultimaTroca.AddSeconds(15)
+  $out = @()
+  foreach ($n in (Get-VisiblePanels)) {
+    $r = $Cache["red$n"]
+    if ($r -and $r.t -ge $lim -and [double]$r.pct -ge $rc.vermelhoPct) { $out += "$n ($($r.pct)%)" }
+  }
+  return $out
+}
+function Request-VisibleShots([int]$Seg) { foreach ($n in (Get-VisiblePanels)) { Request-Shot $n $Seg } }
+
+# Zera o relogio (cenario aplicado na mao, rodizio ligado/religado, parede religada)
+function Reset-Rotation {
+  if ($Rot.fase -eq 'segurando') { $Rot.fase = 'rodando' }
+  $Rot.trocaEm = $null; $Rot.preparado = $false; $Rot.preEm = $null; $Rot.shotsEm = $null; $Rot.segDesde = $null; $Rot.liberado = $false; $Rot.motivo = ''
+  $script:Prerender.Clear()
+}
+
+# Pre-carrega o proximo cenario nos paineis que so vao trocar de link (mesmo zoom e mesma area do mosaico)
+function Invoke-RotPreload([string]$Id) {
+  $cfg = Get-Config
+  $cen = $cfg.cenarios | Where-Object { $_.id -eq $Id } | Select-Object -First 1
+  if (-not $cen) { return 0 }
+  $m = Get-ScenarioMosaic $cfg $cen
+  $af = Get-MosaicAffected (Get-Mosaic $cfg) $m.mosaico
+  $absNovo = Get-AbsorbedMap $m.mosaico
+  $absAgora = $Cache['absorvidos']; if (-not $absAgora) { $absAgora = @{} }
+  $qtd = 0
+  foreach ($np in @($cen.paineis)) {
+    $n = [int]$np.n
+    if ($n -ge $PanelCount -or $af.ContainsKey($n) -or $absNovo.ContainsKey($n) -or $absAgora.ContainsKey($n) -or -not [string]$np.url) { continue }
+    $op = $cfg.paineis | Where-Object { [int]$_.n -eq $n } | Select-Object -First 1
+    if (-not $op -or -not [string]$op.url -or [string]$op.url -eq [string]$np.url) { continue }
+    if ([math]::Abs([double]$np.zoom - [double]$op.zoom) -gt 0.001) { continue }
+    try { if (Invoke-PanelPrerender $n (Add-GrafanaKiosk ([string]$np.url))) { $qtd++ } } catch {}
+  }
+  return $qtd
+}
+
+function Invoke-RotSwitch([string]$Id, [string]$Por) {
+  $cfg = Get-Config
+  $cen = $cfg.cenarios | Where-Object { $_.id -eq $Id } | Select-Object -First 1
+  if (-not $cen) { $Rot.erro = "cenario $Id nao existe mais"; Reset-Rotation; return $null }
+  $de = [string]$cfg.cenarioAtivo
+  $pre = $Prerender.Count
+  $r = Invoke-ScenarioApply $cfg $cen
+  $Rot.ultimaTroca = Get-Date; $Rot.erro = $null; $Rot.foraAplicado = $false
+  Reset-Rotation
+  $script:Prerender.Clear()
+  $txt = "$((Get-Date).ToString('dd/MM HH:mm:ss')) $($cen.nome)" + $(if ($Por) { " ($Por)" } else { '' }) + $(if ($pre) { " - $pre pre-carregado(s)" } else { '' })
+  $Rot.hist = @(@($txt) + @($Rot.hist) | Select-Object -First 20)
+  Write-Diag "RODIZIO $de -> $Id por=$(if ($Por) { $Por } else { 'tempo' }) precarga=$pre :: $($r.detalhes -join '; ')$($r.aviso)"
+  return $r
+}
+
+function Invoke-RotationTick {
+  $rc = $script:RotCfg
+  $now = Get-Date
+  if (-not $rc -or -not $rc.ativo -or @($rc.itens).Count -lt 1) { if ($Rot.fase -ne 'desligado') { $Rot.fase = 'desligado'; Reset-Rotation }; return }
+  if ($script:SetupPending) { return }
+  if (Get-Pause) { if ($Rot.fase -ne 'paredePausada') { $Rot.fase = 'paredePausada'; Reset-Rotation }; return }
+  if ($rc.pausado) { if ($Rot.fase -ne 'pausado') { $Rot.fase = 'pausado'; Reset-Rotation }; return }
+  if (-not (Test-RotAgenda $rc.agenda $now)) {
+    if ($Rot.fase -ne 'foraHorario') { $Rot.fase = 'foraHorario'; Reset-Rotation }
+    # fora do horario: deixa um cenario fixo (se escolhido), uma vez so
+    $fc = [string]$rc.agenda.foraCenario
+    if ($fc -and -not $Rot.foraAplicado -and $rc.nomes.ContainsKey($fc)) {
+      $Rot.foraAplicado = $true
+      if ($rc.cenarioAtivo -ne $fc) { [void](Invoke-RotSwitch $fc 'fora do horario') ; $Rot.foraAplicado = $true }
+    }
+    return
+  }
+  $Rot.foraAplicado = $false
+  if ($Rot.fase -notin 'rodando', 'segurando') { $Rot.fase = 'rodando'; Reset-Rotation }
+  $next = Get-RotNext $rc
+  $Rot.proximo = $next
+  if (-not $Rot.trocaEm) { $Rot.trocaEm = $now.AddSeconds((Get-RotSeg $rc $rc.cenarioAtivo)) }
+  if (@($rc.itens).Count -lt 2 -and $rc.cenarioAtivo -eq $next) { return }     # um cenario so: nada para trocar
+  $preSeg = if ($rc.preCarregar) { 30 } else { 0 }
+
+  if ($rc.segurarVermelho) {
+    # miniaturas novas de todos os paineis um pouco antes da decisao
+    if (-not $Rot.shotsEm -and $now -ge $Rot.trocaEm.AddSeconds(-($preSeg + 20))) { $Rot.shotsEm = $now; Request-VisibleShots 0 }
+    if ($Rot.fase -eq 'rodando' -and -not $Rot.preparado -and -not $Rot.liberado -and $now -ge $Rot.trocaEm.AddSeconds(-$preSeg)) {
+      $red = @(Get-RotRed $rc)
+      if ($red.Count) { $Rot.fase = 'segurando'; $Rot.segDesde = $now; $Rot.motivo = "vermelho no(s) painel(is) $($red -join ', ')"; Write-Diag "RODIZIO segurando: $($Rot.motivo)" }
+    }
+    if ($Rot.fase -eq 'segurando') {
+      if (($now - $Rot.shotsEm).TotalSeconds -ge 30) { $Rot.shotsEm = $now; Request-VisibleShots 0 }
+      $red = @(Get-RotRed $rc)
+      $estourou = $rc.segurarMaxMin -gt 0 -and ($now - $Rot.segDesde).TotalMinutes -ge $rc.segurarMaxMin
+      if ($red.Count -and -not $estourou) { $Rot.motivo = "vermelho no(s) painel(is) $($red -join ', ')"; return }
+      Write-Diag "RODIZIO segue: $(if ($estourou) { "segurou o maximo de $($rc.segurarMaxMin) min" } else { 'vermelho normalizou' })"
+      $Rot.fase = 'rodando'; $Rot.motivo = ''; $Rot.segDesde = $null; $Rot.liberado = $true
+      $Rot.trocaEm = $now.AddSeconds([math]::Max(5, $preSeg))
+    }
+  }
+  if ($rc.preCarregar -and -not $Rot.preparado -and $now -ge $Rot.trocaEm.AddSeconds(-$preSeg)) {
+    $Rot.preparado = $true; $Rot.preEm = $now
+    try { $Rot.preQtd = Invoke-RotPreload $next } catch { $Rot.preQtd = 0; Write-Diag "RODIZIO pre-carga falhou: $($_.Exception.Message)" }
+  }
+  if ($now -ge $Rot.trocaEm) {
+    try { [void](Invoke-RotSwitch $next '') } catch { $Rot.erro = $_.Exception.Message; Write-Diag "RODIZIO erro na troca: $($Rot.erro)"; Reset-Rotation }
+  }
+}
+
+function Get-RotStatus {
+  $rc = $script:RotCfg
+  if (-not $rc) { return $null }
+  $now = Get-Date
+  $falta = if ($Rot.trocaEm -and $Rot.fase -eq 'rodando') { [int][math]::Max(0, ($Rot.trocaEm - $now).TotalSeconds) } else { $null }
+  $nx = $Rot.proximo; if (-not $nx -and $rc.ativo) { $nx = Get-RotNext $rc }
+  $fase = $Rot.fase
+  if ($fase -eq 'rodando' -and @($rc.itens).Count -lt 2 -and $nx -eq $rc.cenarioAtivo) { $fase = 'umSo'; $falta = $null }
+  return [ordered]@{
+    ativo = [bool]$rc.ativo; fase = $fase; pausado = [bool]$rc.pausado; qtd = @($rc.itens).Count
+    atual = $rc.cenarioAtivo; proximo = $nx; proximoNome = $(if ($nx) { $rc.nomes[$nx] } else { $null })
+    trocaEm = $(if ($Rot.trocaEm) { $Rot.trocaEm.ToString('s') } else { $null }); faltaSeg = $falta
+    motivo = $Rot.motivo; segurandoDesde = $(if ($Rot.segDesde) { $Rot.segDesde.ToString('s') } else { $null })
+    preCarregados = $(if ($Rot.preparado) { [int]$Rot.preQtd } else { $null }); erro = $Rot.erro
+    agenda = $(if ($rc.agenda -and $rc.agenda.ativo) { "$($rc.agenda.inicio)-$($rc.agenda.fim)" } else { $null })
+  }
 }
 
 # ---------------------------------------------------------------- HTTP
@@ -1329,7 +1599,9 @@ function Invoke-Route($Ctx) {
 
   # ---- estado e status
   if ($path -eq '/api/estado' -and $method -eq 'GET') {
+    $cfgT = $(try { [IO.File]::GetLastWriteTimeUtc($CfgFile).Ticks.ToString() } catch { '' })    # antes de ler: mudou depois, a pagina le de novo
     $o = Get-Config
+    $o | Add-Member -NotePropertyName cfgT -NotePropertyValue $cfgT -Force
     $lay = $null; try { $lay = Read-JsonFile $LayoutFile } catch {}
     $o | Add-Member -NotePropertyName layout -NotePropertyValue $lay -Force
     $o | Add-Member -NotePropertyName nPaineis -NotePropertyValue $PanelCount -Force
@@ -1356,6 +1628,7 @@ function Invoke-Route($Ctx) {
     }
     Send-Json $Ctx 200 @{ versao = $Version; agora = (Get-Date -Format s); agoraMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
                           paineis = @($st); pc = $Cache['pc']; parede = (Get-WallDiag); pausa = (Get-Pause); mosaicoSig = [string]$Cache['mosaicoSig']
+                          cfgT = $(try { [IO.File]::GetLastWriteTimeUtc($CfgFile).Ticks.ToString() } catch { '' }); rodizio = (Get-RotStatus)
                           manut = @{ auto = [bool]$Cache['manut'].auto; proxima = (Get-NextReopen); ultimo = @($Cache['eventos'] | Select-Object -First 1)[0] } }
     return
   }
@@ -1633,6 +1906,16 @@ function Invoke-Route($Ctx) {
     if (-not $id) { $id = 'cenario' }
     $base = $id; $i = 2
     while ($cfg.cenarios | Where-Object { $_.id -eq $id }) { $id = "$base-$i"; $i++ }
+    if ($b.copiarDe) {
+      # duplicar: copia outro cenario (a parede nao muda); depois e so aplicar, trocar os dashboards e salvar
+      $orig = $cfg.cenarios | Where-Object { $_.id -eq [string]$b.copiarDe } | Select-Object -First 1
+      if (-not $orig) { Send-Json $Ctx 404 @{ erro = 'Cenario de origem inexistente.' }; return }
+      $mo = @(); if ($orig.PSObject.Properties['mosaico']) { $mo = @(Copy-Deep @($orig.mosaico | Where-Object { $_ })) }
+      $cfg.cenarios = @($cfg.cenarios) + [pscustomobject]@{ id = $id; nome = [string]$b.nome; paineis = @(Copy-Deep @($orig.paineis)); mosaico = $mo }
+      Save-Config $cfg
+      Write-Audit $who $ip 'CENARIO_DUPLICADO' "id=$id nome=$($b.nome) de=$($orig.id)"
+      Send-Json $Ctx 200 @{ ok = $true; id = $id; msg = "Cenario '$($b.nome)' criado como copia de '$($orig.nome)'. A parede nao mudou." }; return
+    }
     $cfg.cenarios = @($cfg.cenarios) + [pscustomobject]@{ id = $id; nome = [string]$b.nome; paineis = @(Copy-Deep $cfg.paineis); mosaico = @(Copy-Deep @(Get-Mosaic $cfg)) }
     $cfg.cenarioAtivo = $id
     Save-Config $cfg
@@ -1648,18 +1931,12 @@ function Invoke-Route($Ctx) {
 
     if ($aplicar -and $method -eq 'POST') {
       $anteriores = @(Copy-Deep $cfg.paineis)
-      # cenario antigo (sem mosaico) = todos os paineis separados
-      $mosCen = @(); if ($cen.PSObject.Properties['mosaico']) { $mosCen = @($cen.mosaico | Where-Object { $_ }) }
-      $aviso = ''
-      $tm = Test-Mosaic (Get-Tiles) $mosCen
-      if ($tm.erro) { $mosCen = @(Get-Mosaic $cfg); $aviso = " Mosaico do cenario ignorado ($($tm.erro))." } else { $mosCen = @($tm.mosaico) }
-      # paineis que o cenario nao define ficam como estao
-      $novos = @($cfg.paineis | Where-Object { $n0 = [int]$_.n; -not ($cen.paineis | Where-Object { [int]$_.n -eq $n0 }) }) + @($cen.paineis)
       $undo = New-UndoSnapshot $cfg 'operador'
-      $cfg.cenarioAtivo = $id
-      $r = Set-WallState $cfg $novos $mosCen
-      Write-Audit $who $ip 'CENARIO_APLICADO' "id=$id :: $($r.detalhes -join '; ')$aviso"
-      Send-Json $Ctx 200 @{ ok = $true; msg = "Cenario '$($cen.nome)' aplicado.$aviso"; detalhes = $r.detalhes; afetados = $r.afetados; anteriores = $anteriores; desfazer = $undo }; return
+      $r = Invoke-ScenarioApply $cfg $cen
+      # rodizio ligado: o tempo recomeca a contar a partir deste cenario
+      Reset-Rotation; $Rot.ultimaTroca = Get-Date
+      Write-Audit $who $ip 'CENARIO_APLICADO' "id=$id :: $($r.detalhes -join '; ')$($r.aviso)"
+      Send-Json $Ctx 200 @{ ok = $true; msg = "Cenario '$($cen.nome)' aplicado.$($r.aviso)"; detalhes = $r.detalhes; afetados = $r.afetados; anteriores = $anteriores; desfazer = $undo }; return
     }
     if (-not $aplicar -and $method -eq 'PUT') {
       $b = Read-Body $Ctx
@@ -1680,9 +1957,80 @@ function Invoke-Route($Ctx) {
       if (@($cfg.cenarios).Count -le 1) { Send-Json $Ctx 400 @{ erro = 'Precisa existir pelo menos um cenario.' }; return }
       $cfg.cenarios = @($cfg.cenarios | Where-Object { $_.id -ne $id })
       if ($cfg.cenarioAtivo -eq $id) { $cfg.cenarioAtivo = $null }
+      $cfg.rodizio.itens = @($cfg.rodizio.itens | Where-Object { $_.id -ne $id })
+      if ([string]$cfg.rodizio.agenda.foraCenario -eq $id) { $cfg.rodizio.agenda.foraCenario = '' }
       Save-Config $cfg
       Write-Audit $who $ip 'CENARIO_EXCLUIDO' "id=$id nome=$($cen.nome)"
       Send-Json $Ctx 200 @{ ok = $true; msg = "Cenario '$($cen.nome)' excluido." }; return
+    }
+  }
+
+  # ---- rodizio de cenarios (ver: todos; alterar e controlar: operador)
+  if ($path -match '^/api/rodizio(/(pausar|continuar|proximo))?$') {
+    $acao = $Matches[2]
+    if (-not $acao -and $method -eq 'GET') {
+      $cfg = Get-Config
+      $verm = @(foreach ($n in (Get-VisiblePanels)) { $r = $Cache["red$n"]; if ($r) { [pscustomobject]@{ n = $n; pct = $r.pct; t = $r.t.ToString('s'); atual = [bool]($r.t -ge $Rot.ultimaTroca.AddSeconds(15)) } } })
+      Send-Json $Ctx 200 @{ config = $cfg.rodizio; status = (Get-RotStatus); cenarios = @($cfg.cenarios | ForEach-Object { [pscustomobject]@{ id = $_.id; nome = $_.nome } })
+                            vermelho = $verm; historico = @($Rot.hist); pausa = [bool](Get-Pause) }; return
+    }
+    if (-not (Test-Role $s 'operador')) { Send-Json $Ctx 403 @{ erro = 'Sem permissao.' }; return }
+    $cfg = Get-Config
+    if (-not $acao -and $method -eq 'PUT') {
+      $b = Read-Body $Ctx
+      $nomes = @{}; foreach ($c in $cfg.cenarios) { $nomes[[string]$c.id] = [string]$c.nome }
+      $padrao = 0; [void][int]::TryParse([string]$b.padraoSeg, [ref]$padrao)
+      if ($padrao -lt 30 -or $padrao -gt 86400) { Send-Json $Ctx 400 @{ erro = 'Tempo padrao: de 30 segundos a 24 horas.' }; return }
+      $itens = @(); $vistos = @{}
+      foreach ($it in @($b.itens)) {
+        $iid = [string]$it.id
+        if (-not $nomes.ContainsKey($iid)) { Send-Json $Ctx 400 @{ erro = "Cenario '$iid' inexistente." }; return }
+        if ($vistos.ContainsKey($iid)) { continue }
+        $vistos[$iid] = 1
+        $sg = 0; [void][int]::TryParse([string]$it.seg, [ref]$sg)
+        if ($sg -ne 0 -and ($sg -lt 30 -or $sg -gt 86400)) { Send-Json $Ctx 400 @{ erro = "Tempo de '$($nomes[$iid])': de 30 segundos a 24 horas (ou vazio para usar o padrao)." }; return }
+        $itens += [pscustomobject]@{ id = $iid; seg = $sg }
+      }
+      if ($b.ativo -and -not $itens.Count) { Send-Json $Ctx 400 @{ erro = 'Escolha pelo menos um cenario para o rodizio.' }; return }
+      $pct = 0.0
+      if (-not [double]::TryParse([string]$b.vermelhoPct, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$pct) -or $pct -lt 0.5 -or $pct -gt 50) { Send-Json $Ctx 400 @{ erro = 'Limite de vermelho: de 0,5% a 50%.' }; return }
+      $maxMin = -1; [void][int]::TryParse([string]$b.segurarMaxMin, [ref]$maxMin)
+      if ($maxMin -lt 0 -or $maxMin -gt 1440) { Send-Json $Ctx 400 @{ erro = 'Tempo maximo segurando: 0 (sem limite) a 1440 minutos.' }; return }
+      $ag = $b.agenda
+      $agIni = ([string]$ag.inicio).Trim(); $agFim = ([string]$ag.fim).Trim()
+      foreach ($h in $agIni, $agFim) { if ($h -notmatch '^([01]\d|2[0-3]):([0-5]\d)$') { Send-Json $Ctx 400 @{ erro = 'Horario da agenda invalido (HH:MM).' }; return } }
+      $dias = @(foreach ($d in @($ag.dias)) { $dv = -1; if ([int]::TryParse([string]$d, [ref]$dv) -and $dv -ge 0 -and $dv -le 6) { $dv } }) | Sort-Object -Unique
+      if ($ag.ativo -and -not @($dias).Count) { Send-Json $Ctx 400 @{ erro = 'Escolha pelo menos um dia da semana na agenda.' }; return }
+      $fora = [string]$ag.foraCenario
+      if ($fora -and -not $nomes.ContainsKey($fora)) { Send-Json $Ctx 400 @{ erro = 'Cenario de fora do horario inexistente.' }; return }
+      $cfg.rodizio = [pscustomobject]@{
+        ativo = [bool]$b.ativo; pausado = [bool]$cfg.rodizio.pausado; padraoSeg = $padrao; itens = @($itens); preCarregar = [bool]$b.preCarregar
+        segurarVermelho = [bool]$b.segurarVermelho; vermelhoPct = $pct; segurarMaxMin = $maxMin
+        agenda = [pscustomobject]@{ ativo = [bool]$ag.ativo; inicio = $agIni; fim = $agFim; dias = @($dias); foraCenario = $fora }
+      }
+      if (-not $b.ativo) { $cfg.rodizio.pausado = $false }
+      Save-Config $cfg
+      Reset-Rotation; $Rot.fase = 'novo'
+      Write-Audit $who $ip 'RODIZIO_ALTERADO' ("ativo=$([bool]$b.ativo) cenarios=$(@($itens | ForEach-Object { "$($_.id):$($_.seg)" }) -join ',') padraoSeg=$padrao " +
+        "preCarregar=$([bool]$b.preCarregar) segurarVermelho=$([bool]$b.segurarVermelho)/$pct%/${maxMin}min agenda=$(if ($ag.ativo) { "$agIni-$agFim dias=$(@($dias) -join '') fora=$fora" } else { 'nao' })")
+      Send-Json $Ctx 200 @{ ok = $true; msg = $(if ($b.ativo) { "Rodizio ligado com $($itens.Count) cenario(s)." } else { 'Rodizio desligado.' }) }; return
+    }
+    if ($acao -and $method -eq 'POST') {
+      if (-not $cfg.rodizio.ativo) { Send-Json $Ctx 400 @{ erro = 'O rodizio esta desligado.' }; return }
+      if ($acao -eq 'proximo') {
+        if (Get-Pause) { Send-Json $Ctx 400 @{ erro = 'A parede esta pausada.' }; return }
+        $nx = Get-RotNext $script:RotCfg
+        if (-not $nx) { Send-Json $Ctx 400 @{ erro = 'Nenhum cenario no rodizio.' }; return }
+        $r = Invoke-RotSwitch $nx $who
+        if (-not $r) { Send-Json $Ctx 400 @{ erro = "Nao consegui trocar: $($Rot.erro)" }; return }
+        Write-Audit $who $ip 'RODIZIO_PROXIMO' "id=$nx"
+        Send-Json $Ctx 200 @{ ok = $true; msg = "Trocando para '$($script:RotCfg.nomes[$nx])'.$($r.aviso)"; afetados = $r.afetados }; return
+      }
+      $cfg.rodizio.pausado = ($acao -eq 'pausar')
+      Save-Config $cfg
+      Reset-Rotation
+      Write-Audit $who $ip $(if ($acao -eq 'pausar') { 'RODIZIO_PAUSADO' } else { 'RODIZIO_CONTINUADO' }) ''
+      Send-Json $Ctx 200 @{ ok = $true; msg = $(if ($acao -eq 'pausar') { 'Rodizio pausado: a parede fica no cenario atual.' } else { 'Rodizio continuando.' }) }; return
     }
   }
 
@@ -1767,6 +2115,14 @@ function Write-Diag([string]$Text) {
     [IO.File]::AppendAllText($DiagFile, "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Text`r`n")
   } catch {}
 }
+# Rodizio no laco principal: um erro nunca derruba o servidor (registra cada erro novo uma vez)
+function Invoke-RotationSafe {
+  try { Invoke-RotationTick } catch {
+    $em = "$($_.Exception.Message) (linha $($_.InvocationInfo.ScriptLineNumber))"
+    if ($Rot.erro -ne $em) { Write-Diag "RODIZIO erro: $em" }
+    $Rot.erro = $em; Reset-Rotation
+  }
+}
 function Get-MemMB { [math]::Round([Diagnostics.Process]::GetCurrentProcess().PrivateMemorySize64 / 1MB) }
 
 # Protecao: se o processo passar do limite, sai com erro; a tarefa agendada (repeticao a cada 5 min) sobe de novo.
@@ -1809,7 +2165,7 @@ catch {
 }
 # pausa sobrevive a reinicios do gerenciador e do PC
 if (Test-Path $PauseFile) { try { $Cache['pausa'] = Read-JsonFile $PauseFile } catch {} }
-try { $c0 = Get-Config; Update-MosaicCache (Get-Mosaic $c0); Update-ManutCache $c0; Update-EmptyCache $c0 } catch { Write-Diag "AVISO paineis.json ilegivel: $($_.Exception.Message)" }
+try { $c0 = Get-Config; Update-MosaicCache (Get-Mosaic $c0); Update-ManutCache $c0; Update-EmptyCache $c0; Update-RotCache $c0 } catch { Write-Diag "AVISO paineis.json ilegivel: $($_.Exception.Message)" }
 # reinicios por memoria nas ultimas 24 h (para o /api/saude)
 try {
   $lim = (Get-Date).AddHours(-24).ToString('yyyy-MM-dd HH:mm:ss')
@@ -1827,7 +2183,7 @@ try {
   $pending = $null
   while ($listener.IsListening) {
     if (-not $pending) { $pending = $listener.GetContextAsync() }
-    if (-not $pending.Wait(5000)) { Test-Health; continue }     # sem requisicao: so checa a saude
+    if (-not $pending.Wait(5000)) { Test-Health; Invoke-RotationSafe; continue }     # sem requisicao: saude e rodizio
     $ctx = $pending.Result; $pending = $null
     if (-not (Test-IpAllowed $ctx.Request.RemoteEndPoint.Address)) {
       try {
@@ -1856,6 +2212,7 @@ try {
     # limpeza simples de sessoes expiradas
     foreach ($k in @($Sessions.Keys)) { if ($Sessions[$k].exp -lt (Get-Date)) { $Sessions.Remove($k) } }
     Test-Health
+    Invoke-RotationSafe
   }
 } finally {
   $listener.Stop()

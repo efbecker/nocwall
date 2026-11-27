@@ -121,7 +121,15 @@ powershell -ExecutionPolicy Bypass -File Test-NocManager.ps1 -Url https://scry.a
 - **Progresso**: o cartão mostra "Trocando link… → Carregando… → ✓ Pronto" até a miniatura nova chegar.
 - **Cenários**:
   - clique no nome para aplicar (pede confirmação se mais de 3 painéis forem mudar);
-  - **Gerenciar** cria, sobrescreve, renomeia e exclui cenários.
+  - **Gerenciar** cria, sobrescreve, renomeia, duplica e exclui cenários. **Duplicar** copia um cenário sem mexer na parede: aplique a cópia, troque os dashboards e use **Salvar a parede atual em um cenário**.
+- **Rodízio de cenários** (botão **⟲ Rodízio**; operador e admin alteram, todos veem):
+  - marque os cenários que entram, a ordem e o tempo de cada um (vazio = tempo padrão; mínimo 30 s). Os cenários do rodízio aparecem com ⟲ e o próximo fica tracejado;
+  - a barra mostra "Próximo: X em 2:30". **⏸ Pausar** deixa a parede no cenário atual até **▶ Continuar**; **⏭ Próximo** troca na hora;
+  - **pré-carga**: 30 s antes da troca, o Chrome de cada painel monta o próximo dashboard escondido (prerender) e na hora só troca, sem tela de carregando. Vale para painéis que continuam no mesmo Grafana, com o mesmo zoom e o mesmo mosaico; quem muda de mosaico reabre a janela. Para trocas sem piscar, mantenha o mesmo mosaico nos cenários do rodízio;
+  - **segurar em alerta** (opcional): o Scry mede quanto de cada miniatura está vermelho (vermelhos do Grafana). Acima do limite, o rodízio para no cenário até normalizar (ou até o tempo máximo). A janela do rodízio mostra o vermelho atual de cada painel para ajudar a escolher o limite;
+  - **agenda** (opcional): rodar só em alguns dias e horários (pode virar a meia-noite, ex.: 19:00 às 07:00) e, fora do horário, deixar um cenário fixo;
+  - aplicar um cenário na mão faz o tempo recomeçar a partir dele. Mudanças feitas na parede durante o rodízio somem na próxima troca: salve no cenário para manter;
+  - o rodízio para enquanto a parede está pausada. As trocas ficam em **Últimas trocas** e no `Manager\diag.log`; ligar, pausar e alterar vão para a auditoria.
 - **Parede inteira**:
   - **Recarregar tudo**: um painel a cada 1,5 s.
   - **Reabrir tudo**: fecha e reabre todas as janelas (10, ou menos com mosaico).
