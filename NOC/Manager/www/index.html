@@ -79,6 +79,26 @@
   .chip.active { background: var(--accent2); border-color: var(--accent); color: #fff; }
   .chip.active.mod { background: #4a3a12; border-color: var(--warn); color: #ffd58a; }
   .spacer { flex: 1; }
+  /* rodizio de cenarios */
+  .chip.inrot::before { content: "⟲ "; opacity: .7; }
+  .chip.next { border-style: dashed; border-color: var(--accent); }
+  .rot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .rotst { display: inline-block; font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
+  .rotst b { font-variant-numeric: tabular-nums; }
+  .rotst.run { border-color: #1d5a3c; } .rotst.hold { border-color: #6a2326; color: #ff9b9e; } .rotst.idle { color: var(--muted); }
+  .rotst .bar2 { display: block; height: 2px; margin-top: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .rotst .bar2 i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 1s linear; }
+  #mRot .hint { word-break: normal; }
+  .rtable td { padding: 4px 6px; }
+  .rtable input[type=number] { width: 90px; }
+  .rtable tr.off td:not(:first-child) { opacity: .45; }
+  .dias { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  .dias label { display: flex; gap: 4px; align-items: center; margin: 0; color: var(--text); font-size: 13px; }
+  .dias input { width: auto; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 0 12px; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 14px 0 0; padding: 4px 12px 12px; }
+  legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
   .dd { position: relative; }
   .dd > .menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--panel2);
     border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 220px; z-index: 30;
@@ -295,8 +315,15 @@
         <button id="scnNew">Novo cenário com a parede atual…</button>
         <button id="scnSave">Salvar a parede atual em um cenário…</button>
         <button id="scnRename">Renomear cenário…</button>
+        <button id="scnDup">Duplicar cenário…</button>
         <button id="scnDel">Excluir cenário…</button>
       </div>
+    </div>
+    <div class="rot" id="rotBox">
+      <button id="btnRot" class="small" title="Trocar de cenário sozinho a cada X minutos">⟲ Rodízio</button>
+      <span class="rotst hidden" id="rotSt"></span>
+      <button id="rotPause" class="small op-only hidden" title="Fica no cenário atual até continuar">⏸ Pausar</button>
+      <button id="rotNext" class="small op-only hidden" title="Troca agora para o próximo cenário do rodízio">⏭ Próximo</button>
     </div>
     <div class="spacer"></div>
     <button id="btnMosaic" class="adm-only" title="Mesclar painéis vizinhos em uma tela maior (ou separar)">▦ Mosaico</button>
@@ -452,6 +479,58 @@
     <div class="foot">
       <button data-close>Fechar</button>
       <button class="primary adm-only" id="mnSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: RODÍZIO DE CENÁRIOS ============ -->
+<div class="modal hidden" id="mRot">
+  <div class="box wide">
+    <h2>Rodízio de cenários</h2>
+    <div class="muted">A parede troca de cenário sozinha, na ordem abaixo. Cada cenário fica o tempo dele (vazio = tempo padrão).</div>
+    <label class="chk"><input type="checkbox" id="rAtivo"> <b>Ligar o rodízio</b></label>
+    <div class="grid2">
+      <div><label for="rPadrao">Tempo padrão (minutos; 0,5 = 30 segundos)</label><input id="rPadrao" type="number" min="0.5" max="1440" step="0.5"></div>
+      <div></div>
+    </div>
+    <table class="rtable">
+      <thead><tr><th style="width:40px">No rodízio</th><th>Cenário</th><th>Tempo (min)</th><th style="width:90px">Ordem</th></tr></thead>
+      <tbody id="rBody"></tbody>
+    </table>
+
+    <fieldset>
+      <legend>Troca sem tela de carregando</legend>
+      <label class="chk"><input type="checkbox" id="rPre"> Pré-carregar o próximo cenário escondido (30 s antes da troca)</label>
+      <div class="hint">O Chrome monta o próximo dashboard por trás e só troca quando chega a hora. Funciona quando o dashboard novo é do mesmo Grafana do atual, com o mesmo zoom e o mesmo mosaico; painéis que mudam de mosaico reabrem a janela. Usa mais memória do Chrome durante esses 30 s.</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Alerta na tela</legend>
+      <label class="chk"><input type="checkbox" id="rRed"> Segurar o cenário enquanto algum painel estiver vermelho</label>
+      <div class="grid2">
+        <div><label for="rPct">Considerar vermelho a partir de (% da tela)</label><input id="rPct" type="number" min="0.5" max="50" step="0.5"></div>
+        <div><label for="rMax">Segurar no máximo (minutos; 0 = até normalizar)</label><input id="rMax" type="number" min="0" max="1440" step="1"></div>
+      </div>
+      <div class="hint" id="rRedNow"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Agenda</legend>
+      <label class="chk"><input type="checkbox" id="rAg"> Rodar só em alguns horários</label>
+      <div class="grid3">
+        <div><label for="rIni">Das</label><input id="rIni" type="time"></div>
+        <div><label for="rFim">Até</label><input id="rFim" type="time"></div>
+        <div><label for="rFora">Fora do horário, deixar na parede</label><select id="rFora"></select></div>
+      </div>
+      <label>Dias (o dia em que o horário começa; das 19:00 às 07:00 vira a meia-noite)</label>
+      <div class="dias" id="rDias"></div>
+    </fieldset>
+
+    <label>Últimas trocas</label>
+    <pre class="audit" id="rHist" style="max-height:20vh"></pre>
+    <div class="foot">
+      <button data-close>Fechar</button>
+      <button class="primary op-only" id="rSave">Salvar</button>
     </div>
   </div>
 </div>
@@ -875,6 +954,10 @@ function renderStatus() {
   if (cfg && st.mosaicoSig !== undefined && st.mosaicoSig !== cfg.mosaicoSig && !reloadingMosaic) {
     reloadingMosaic = true;
     loadState().then(buildWall).catch(() => {}).finally(() => { reloadingMosaic = false; });
+  } else if (cfg && st.cfgT && cfg.cfgT && st.cfgT !== cfg.cfgT && !reloadingMosaic) {
+    // paineis.json mudou (rodízio trocou de cenário, outro operador salvou): nomes e cenário ativo em dia
+    reloadingMosaic = true;
+    loadState().catch(() => {}).finally(() => { reloadingMosaic = false; });
   }
   const now = serverNow();
   const pausa = st.pausa;
@@ -925,6 +1008,7 @@ function renderStatus() {
     pill.title = s.online ? ("Aberto agora: " + (s.urlAtual || "")) : "Janela fechada ou sem porta de depuração";
   }
   renderHealth(online);
+  renderRot();
   renderPause();
   renderWallWarn();
   $("ver").textContent = "Scry · Video Wall v" + st.versao;
@@ -1217,7 +1301,9 @@ function renderScenarios() {
   const modified = (c) => sig(c.paineis) !== sig(cfg.paineis) || mosSig(c.mosaico) !== mosSig(cfg.mosaico);
   for (const c of cfg.cenarios || []) {
     const active = c.id === cfg.cenarioAtivo, mod = active && modified(c);
-    const b = el("button", { class: "chip" + (active ? " active" : "") + (mod ? " mod" : ""),
+    const rot = cfg.rodizio && cfg.rodizio.ativo ? cfg.rodizio.itens || [] : [];
+    const inRot = rot.some(i => i.id === c.id), isNext = st && st.rodizio && st.rodizio.ativo && st.rodizio.proximo === c.id && !active;
+    const b = el("button", { class: "chip" + (active ? " active" : "") + (mod ? " mod" : "") + (inRot ? " inrot" : "") + (isNext ? " next" : ""),
       text: c.nome + (mod ? " (modificado)" : ""),
       title: active ? (mod ? "Cenário ativo, mas a parede foi alterada. Clique para voltar ao cenário." : "Cenário ativo") : "Clique para aplicar na parede" });
     if (can("operador")) b.onclick = () => applyScenario(c); else b.disabled = !active;
@@ -1250,6 +1336,14 @@ $("scnSave").onclick = () => ask({ title: "Salvar a parede atual em um cenário"
 $("scnRename").onclick = () => ask({ title: "Renomear cenário", pick: true, label: "Novo nome" }, async (nome, id) => {
   try { const r = await api("PUT", `/api/cenarios/${id}`, { nome }); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
 });
+$("scnDup").onclick = () => ask({ title: "Duplicar cenário (a parede não muda)", pick: true, pickLabel: "Copiar o cenário", label: "Nome do novo cenário" }, async (nome, id) => {
+  const orig = cfg.cenarios.find(x => x.id === id);
+  if (orig && nome === orig.nome) nome = nome + " (cópia)";
+  try {
+    const r = await api("POST", "/api/cenarios", { nome, copiarDe: id }); await loadState();
+    toast(r.msg + " Para mudar: aplique o cenário, troque os dashboards e use Gerenciar › Salvar a parede atual.");
+  } catch (e) { toast(e.message, true); }
+});
 $("scnDel").onclick = () => ask({ title: "Excluir cenário (a parede não muda)", pick: true }, async (_, id) => {
   const c = cfg.cenarios.find(x => x.id === id); if (!c || !confirm(`Excluir o cenário "${c.nome}"?`)) return;
   try { const r = await api("DELETE", `/api/cenarios/${id}`); toast(r.msg); await loadState(); } catch (e) { toast(e.message, true); }
@@ -1275,6 +1369,129 @@ document.querySelectorAll("#menuPause button").forEach(b => b.addEventListener("
 }));
 const resume = () => wallAction("religar", {}, "Abrindo janela…");
 $("btnResume").onclick = resume; $("btnResume2").onclick = resume;
+
+// ---------------------------------------------------------------- rodízio de cenários
+const fmtMS = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}h${String(m).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const scnName = (id) => { const c = (cfg && cfg.cenarios || []).find(x => x.id === id); return c ? c.nome : id; };
+let rotTick = null, lastNext = null;
+function renderRot() {
+  const r = st && st.rodizio, box = $("rotSt"), op = can("operador");
+  const on = !!(r && r.ativo);
+  $("btnRot").textContent = on ? "⟲ Rodízio ▾" : "⟲ Rodízio";
+  $("btnRot").classList.toggle("primary", on);
+  box.classList.toggle("hidden", !on);
+  $("rotPause").classList.toggle("hidden", !on || !op || r.fase === "foraHorario" || r.fase === "paredePausada");
+  $("rotNext").classList.toggle("hidden", !on || !op || !!st.pausa);
+  if (r && r.proximo !== lastNext) { lastNext = r.proximo; if (cfg) renderScenarios(); }
+  clearInterval(rotTick);
+  if (!on) return;
+  $("rotPause").textContent = r.pausado ? "▶ Continuar" : "⏸ Pausar";
+  $("rotPause").title = r.pausado ? "Volta a trocar de cenário" : "Fica no cenário atual até continuar";
+  const nx = r.proximoNome || scnName(r.proximo) || "?";
+  const draw = () => {
+    box.className = "rotst"; box.innerHTML = "";
+    if (r.fase === "rodando" && r.faltaSeg != null) {
+      const left = r.faltaSeg - (Date.now() - stAt) / 1000;
+      box.classList.add("run");
+      box.append("Próximo: ", el("b", { text: nx }), " em ", el("b", { text: fmtMS(left) }));
+      if (r.preCarregados) box.append(el("span", { class: "muted", text: ` · ${r.preCarregados} pré-carregado(s)` }));
+      const tot = (cfg && cfg.rodizio && (((cfg.rodizio.itens || []).find(i => i.id === r.atual) || {}).seg || cfg.rodizio.padraoSeg)) || 0;
+      if (tot > 0) { const b = el("span", { class: "bar2" }, el("i")); b.firstChild.style.width = Math.min(100, Math.max(0, 100 * (1 - left / tot))).toFixed(1) + "%"; box.append(b); }
+      box.title = r.erro ? "Último erro: " + r.erro : "";
+    } else if (r.fase === "segurando") {
+      box.classList.add("hold");
+      const desde = r.segurandoDesde ? Math.round((serverNow() - new Date(r.segurandoDesde)) / 1000) : 0;
+      box.append("⚠ Segurando: ", el("b", { text: r.motivo || "alerta" }), desde > 0 ? ` · há ${fmtAge(desde)}` : "");
+      box.title = "O rodízio segue quando o vermelho sumir. ⏭ Próximo troca agora.";
+    } else {
+      box.classList.add("idle");
+      const T = { pausado: "Rodízio pausado", paredePausada: "Rodízio parado (parede pausada)", foraHorario: `Fora do horário do rodízio (${r.agenda || ""})`,
+                  desligado: "Rodízio sem cenários", novo: "Rodízio começando…", umSo: "Rodízio com um cenário só: escolha mais de um" };
+      box.textContent = T[r.fase] || "Rodízio começando…";
+      if (r.fase === "pausado") box.append(" · próximo: ", el("b", { text: nx }));
+    }
+  };
+  draw();
+  if (r.fase === "rodando") rotTick = setInterval(draw, 1000);
+}
+$("rotPause").onclick = async () => {
+  const r = st && st.rodizio; if (!r) return;
+  try { const x = await api("POST", `/api/rodizio/${r.pausado ? "continuar" : "pausar"}`, {}); toast(x.msg); await poll(); } catch (e) { toast(e.message, true); }
+};
+$("rotNext").onclick = async () => {
+  const r = st && st.rodizio; if (!r) return;
+  $("rotNext").disabled = true;
+  try {
+    const x = await api("POST", "/api/rodizio/proximo", {});
+    toast(x.msg);
+    for (const n of (x.afetados || [])) if ($("card" + n)) { startBusy(n, "Abrindo janela…"); waitScreen(n, "Abrindo janela…"); }
+    await loadState(); await poll();
+  } catch (e) { toast(e.message, true); }
+  finally { $("rotNext").disabled = false; }
+};
+
+// janela de configuração
+const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+let rotRows = [];        // [{ id, nome, on, min }] na ordem do rodízio
+function drawRotRows() {
+  const tb = $("rBody"); tb.innerHTML = "";
+  const ro = !can("operador");
+  rotRows.forEach((row, i) => {
+    const chk = el("input", { type: "checkbox", style: "width:auto" }); chk.checked = row.on; chk.disabled = ro;
+    chk.onchange = () => { row.on = chk.checked; tr.classList.toggle("off", !row.on); };
+    const min = el("input", { type: "number", min: "0.5", max: "1440", step: "0.5", placeholder: "padrão" }); min.value = row.min || ""; min.disabled = ro;
+    min.oninput = () => { row.min = min.value; };
+    const mv = (d) => { const j = i + d; if (j < 0 || j >= rotRows.length) return; [rotRows[i], rotRows[j]] = [rotRows[j], rotRows[i]]; drawRotRows(); };
+    const up = el("button", { class: "small", text: "↑", title: "Subir", onclick: () => mv(-1) }); up.disabled = ro || i === 0;
+    const dn = el("button", { class: "small", text: "↓", title: "Descer", onclick: () => mv(1) }); dn.disabled = ro || i === rotRows.length - 1;
+    const tr = el("tr", { class: row.on ? "" : "off" }, el("td", {}, chk), el("td", { text: row.nome }), el("td", {}, min), el("td", { class: "act" }, up, " ", dn));
+    tb.append(tr);
+  });
+}
+async function openRot() {
+  let r;
+  try { r = await api("GET", "/api/rodizio"); } catch (e) { toast(e.message, true); return; }
+  const c = r.config || {}, ag = c.agenda || {};
+  const itens = c.itens || [], ro = !can("operador");
+  const byId = Object.fromEntries((r.cenarios || []).map(x => [x.id, x.nome]));
+  rotRows = itens.filter(i => byId[i.id]).map(i => ({ id: i.id, nome: byId[i.id], on: true, min: i.seg ? +(i.seg / 60).toFixed(2) : "" }));
+  for (const x of r.cenarios || []) if (!rotRows.some(y => y.id === x.id)) rotRows.push({ id: x.id, nome: x.nome, on: !itens.length, min: "" });
+  drawRotRows();
+  $("rAtivo").checked = !!c.ativo;
+  $("rPadrao").value = +((c.padraoSeg || 300) / 60).toFixed(2);
+  $("rPre").checked = c.preCarregar !== false;
+  $("rRed").checked = !!c.segurarVermelho; $("rPct").value = c.vermelhoPct || 3; $("rMax").value = c.segurarMaxMin != null ? c.segurarMaxMin : 30;
+  $("rAg").checked = !!ag.ativo; $("rIni").value = ag.inicio || "07:00"; $("rFim").value = ag.fim || "19:00";
+  const f = $("rFora"); f.innerHTML = ""; f.append(el("option", { value: "", text: "(não mudar: fica o último)" }));
+  for (const x of r.cenarios || []) f.append(el("option", { value: x.id, text: x.nome }));
+  f.value = ag.foraCenario || "";
+  const dias = (ag.dias || []).map(Number), dd = $("rDias"); dd.innerHTML = "";
+  DIAS.forEach((d, i) => { const k = el("input", { type: "checkbox", "data-d": String(i) }); k.checked = dias.includes(i); k.disabled = ro; dd.append(el("label", {}, k, d)); });
+  const verm = (r.vermelho || []).filter(v => v.atual).sort((a, b) => b.pct - a.pct);
+  $("rRedNow").textContent = verm.length
+    ? "Vermelho agora (cenário atual): " + verm.map(v => `painel ${v.n}: ${String(v.pct).replace(".", ",")}%`).join(" · ") + ". Use um limite acima do vermelho que os dashboards têm normalmente."
+    : (c.segurarVermelho ? "Medindo as miniaturas do cenário atual…" : "Ao ligar, o Scry mede o vermelho de cada miniatura e mostra aqui, para ajudar a escolher o limite.");
+  $("rHist").textContent = (r.historico || []).join("\n") || "(nenhuma troca desde que o gerenciador iniciou)";
+  ["rAtivo", "rPadrao", "rPre", "rRed", "rPct", "rMax", "rAg", "rIni", "rFim", "rFora"].forEach(i => $(i).disabled = ro);
+  openModal("mRot");
+}
+$("btnRot").onclick = openRot;
+$("rSave").onclick = async () => {
+  const num = (v) => Number(String(v).replace(",", "."));
+  const body = {
+    ativo: $("rAtivo").checked,
+    padraoSeg: Math.round(num($("rPadrao").value) * 60),
+    itens: rotRows.filter(x => x.on).map(x => ({ id: x.id, seg: x.min === "" || x.min == null ? 0 : Math.round(num(x.min) * 60) })),
+    preCarregar: $("rPre").checked,
+    segurarVermelho: $("rRed").checked, vermelhoPct: num($("rPct").value), segurarMaxMin: Math.round(num($("rMax").value)),
+    agenda: { ativo: $("rAg").checked, inicio: $("rIni").value, fim: $("rFim").value, foraCenario: $("rFora").value,
+              dias: [...$("rDias").querySelectorAll("input")].filter(k => k.checked).map(k => Number(k.dataset.d)) }
+  };
+  if (body.itens.some(i => i.seg !== 0 && !(i.seg >= 30))) { toast("Tempo de cada cenário: pelo menos 0,5 min (30 s), ou vazio para usar o padrão.", true); return; }
+  try { const r = await api("PUT", "/api/rodizio", body); toast(r.msg); closeModal("mRot"); await loadState(); await poll(); }
+  catch (e) { toast(e.message, true); }
+};
 
 // ---------------------------------------------------------------- manutenção automática
 $("btnManut").onclick = async () => {
