@@ -1095,7 +1095,7 @@ function renderStatus() {
     let cls, txt;
     const age = s.imgT ? Math.max(0, Math.round((now - s.imgT) / 1000)) : null;
     const al = s.alerta, alAge = al && al.desde ? Math.max(0, Math.round((Date.now() - new Date(al.desde)) / 1000)) : 0;
-    const ALERTA = { travado: ["s-old", "congelado"], login: ["s-off", "tela de login"], naoResponde: ["s-off", "não responde"], erro: ["s-off", "erro de rede"] };
+    const ALERTA = { travado: ["s-old", "congelado"], login: ["s-off", "tela de login"], naoResponde: ["s-off", "não responde"], erro: ["s-off", "erro de rede"], naoEncontrado: ["s-off", "não encontrado"] };
     if (pausa) { cls = "s-pause"; txt = "pausado"; }
     else if (!s.online) { cls = "s-off"; txt = al ? `offline há ${fmtAge(alAge)}` : "offline"; }
     else if (al && ALERTA[al.estado] && !busy[n]) { [cls, txt] = ALERTA[al.estado]; txt += ` · ${fmtAge(alAge)}`; }

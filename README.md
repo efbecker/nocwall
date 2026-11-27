@@ -82,6 +82,7 @@ Se o site pede login, um admin cadastra em **Conta → Logins de sites**: nome, 
 - **Mosaico:** junte painéis vizinhos numa tela maior, ou desative blocos que não existem na parede física (ex.: metade de uma saída 4K que só alimenta 2 monitores). Painel desativado some da grade e nunca abre; para reativar, entre no Mosaico de novo.
 - **Pausar a parede** por um tempo, **recarregar** ou **reabrir** tudo.
 - **Grafana em tela cheia:** os links de dashboard (`/d/...`) abrem com `kiosk`, sem o menu lateral. Para outro modo, escreva o `kiosk` no próprio link. O balão do Google Tradutor fica desligado nas telas.
+- **Várias organizações no Grafana:** todos os painéis usam o mesmo usuário, e o Grafana guarda uma organização ativa por usuário. Por isso o Scry descobre a organização de cada dashboard e grava o `orgId` no link sozinho (painéis, cenários e biblioteca). Sem isso, um link sem `orgId` abria às vezes na organização errada e mostrava "Dashboard not found".
 - **Usuários** com papéis `admin`, `operador` e `visualizador`, e auditoria de tudo.
 
 ![Botões de um painel: editar, recarregar, reabrir e abrir o link](docs/img/cartoes.png)
@@ -107,6 +108,7 @@ powershell -ExecutionPolicy Bypass -File C:\NOC\Update-NocManager.ps1 -Reverter
 | Faixa vermelha "Chrome não instalado" | rode o comando de instalação de novo (ele instala o Chrome) e clique em **Reabrir tudo** |
 | Faixa vermelha "Usuário da parede não está logado" | entre no Windows com o usuário da parede (ou ative o logon automático) |
 | Painéis na tela de login do Grafana | **Conta → Login do Grafana → Testar conexão** |
+| Painel do Grafana com "Page/Dashboard not found", mas o link abre no seu navegador | o Scry corrige sozinho em até 1 minuto (põe o `orgId` no link); confira em `C:\NOC\Manager\diag.log` as linhas `GRAFANA_ORG` |
 | Painel de outro site parado na tela de login | **Conta → Logins de sites**: confira usuário e senha e clique em **Entrar agora**; veja a coluna "Na parede agora" |
 | Janelas do Chrome não abrem | confira o logon automático e a tarefa `NOC-VideoWall` no *Agendador de Tarefas* |
 | A página não abre | veja `C:\NOC\Manager\diag.log` e a tarefa `NOC-Manager` |
