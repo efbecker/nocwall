@@ -82,6 +82,10 @@
   /* rodizio de cenarios */
   .chip.inrot::before { content: "⟲ "; opacity: .7; }
   .chip.next { border-style: dashed; border-color: var(--accent); }
+  .unsaved { display: inline-flex; gap: 6px; align-items: center; }
+  .unsaved .lbl { font-size: 12px; color: #ffd58a; }
+  button.save { background: #7a5a12; border-color: var(--warn); color: #fff; font-weight: 600; }
+  button.save:hover { background: #94701a; }
   .rot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .rotst { display: inline-block; font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
   .rotst b { font-variant-numeric: tabular-nums; }
@@ -310,6 +314,11 @@
   <div class="bar">
     <strong>Cenários</strong>
     <div class="chips" id="chips"></div>
+    <span class="unsaved op-only hidden" id="unsaved">
+      <span class="lbl" id="unsavedLbl">Alterações não salvas</span>
+      <button class="small save" id="scnSaveNow" title="Grava a parede de agora no cenário ativo. Na próxima vez que ele voltar (ou no rodízio), vem assim.">💾 Salvar cenário</button>
+      <button class="small" id="scnDiscard" title="Volta a parede para o cenário como estava salvo">↺ Descartar</button>
+    </span>
     <div class="dd op-only">
       <button id="btnScnMenu" class="small">Gerenciar ▾</button>
       <div class="menu left hidden" id="menuScn">
@@ -444,6 +453,19 @@
     <div class="foot">
       <button data-close>Cancelar</button>
       <button class="primary" id="askOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: ALTERACOES NAO SALVAS ============ -->
+<div class="modal hidden" id="mUnsaved">
+  <div class="box">
+    <h2>Alterações não salvas</h2>
+    <p id="unsText"></p>
+    <div class="foot">
+      <button data-close>Cancelar</button>
+      <button id="unsDrop">Trocar sem salvar</button>
+      <button class="primary" id="unsSave">Salvar e trocar</button>
     </div>
   </div>
 </div>
@@ -815,7 +837,7 @@ function buildWall() {
           el("span", { class: "num", text: String(n) }),
           ar ? el("span", { class: "tag area", text: areaLabel(ar), title: `Mesclado: painéis ${(ar.paineis || []).join(", ")} · ${ar.escala === "espaco" ? "mais espaço" : "ampliado"}` }) : null,
           el("span", { class: "name", id: "name" + n }),
-          el("span", { class: "tag hidden", id: "diff" + n, text: "≠ cenário", title: "Diferente do cenário ativo" }),
+          el("span", { class: "tag hidden", id: "diff" + n, text: "≠ cenário", title: "Diferente do cenário salvo. Use 💾 Salvar cenário para guardar esta troca." }),
           el("span", { class: "pill", id: "pill" + n }, el("i"), el("span", { id: "pillt" + n, text: "…" }))),
         el("div", { class: "busy hidden", id: "busy" + n }, el("span", {}, el("div", { class: "spin" }), el("b", { id: "busyt" + n }))),
         can("operador") ? el("div", { class: "acts" },
@@ -1332,26 +1354,70 @@ $("askOk").onclick = async () => {
 $("askInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") $("askOk").click(); });
 
 // ---------------------------------------------------------------- cenários
-const sig = (arr) => JSON.stringify((arr || []).map(p => [Number(p.n), p.nome, p.url, Number(p.zoom)]).sort((a, b) => a[0] - b[0]));
+// so contam os paineis que o cenario define (os outros ficam como estao ao aplicar)
+const scnModified = (c) => !!c && (mosSig(c.mosaico) !== mosSig(cfg.mosaico) ||
+  (c.paineis || []).some(np => { const p = panelOf(Number(np.n)); return !p || p.url !== np.url || p.nome !== np.nome || (Number(p.zoom) || 0) !== (Number(np.zoom) || 0); }));
+const activeScn = () => (cfg && cfg.cenarios || []).find(c => c.id === cfg.cenarioAtivo) || null;
+// cenario ativo com alteracoes nao salvas (ou null)
+const dirtyScn = () => { const a = activeScn(); return a && scnModified(a) ? a : null; };
 function renderScenarios() {
   const box = $("chips"); box.innerHTML = "";
-  const modified = (c) => sig(c.paineis) !== sig(cfg.paineis) || mosSig(c.mosaico) !== mosSig(cfg.mosaico);
   for (const c of cfg.cenarios || []) {
-    const active = c.id === cfg.cenarioAtivo, mod = active && modified(c);
+    const active = c.id === cfg.cenarioAtivo, mod = active && scnModified(c);
     const rot = cfg.rodizio && cfg.rodizio.ativo ? cfg.rodizio.itens || [] : [];
     const inRot = rot.some(i => i.id === c.id), isNext = st && st.rodizio && st.rodizio.ativo && st.rodizio.proximo === c.id && !active;
     const b = el("button", { class: "chip" + (active ? " active" : "") + (mod ? " mod" : "") + (inRot ? " inrot" : "") + (isNext ? " next" : ""),
       text: c.nome + (mod ? " (modificado)" : ""),
-      title: active ? (mod ? "Cenário ativo, mas a parede foi alterada. Clique para voltar ao cenário." : "Cenário ativo") : "Clique para aplicar na parede" });
-    if (can("operador")) b.onclick = () => applyScenario(c); else b.disabled = !active;
+      title: active ? (mod ? "Cenário ativo, mas a parede foi alterada e ainda não foi salva. Use 💾 Salvar cenário para guardar." : "Cenário ativo") : "Clique para aplicar na parede" });
+    if (can("operador")) b.onclick = () => pickScenario(c); else b.disabled = !active;
     box.append(b);
   }
+  renderUnsaved();
 }
-async function applyScenario(c) {
+function renderUnsaved() {
+  if (!cfg) return;
+  const d = dirtyScn();
+  $("unsaved").classList.toggle("hidden", !d || !can("operador"));
+  if (d) {
+    const r = st && st.rodizio;
+    $("unsavedLbl").textContent = r && r.ativo && r.fase === "segurando" && r.segTipo === "mod"
+      ? "Rodízio esperando você salvar" : "Alterações não salvas";
+  }
+}
+async function saveActive() {
+  const a = activeScn(); if (!a) return false;
+  try { const r = await api("PUT", `/api/cenarios/${a.id}`, { salvarAtual: true }); toast(r.msg); await loadState(); poll(); return true; }
+  catch (e) { toast(e.message, true); return false; }
+}
+// pergunta o que fazer com as alteracoes nao salvas antes de trocar; cb(ok) roda depois
+let unsCb = null;
+function askUnsaved(destino, cb) {
+  const d = dirtyScn();
+  if (!d) { cb(); return; }
+  $("unsText").textContent = `A parede tem alterações que ainda não foram salvas no cenário "${d.nome}". ` +
+    `Se trocar para ${destino} sem salvar, elas se perdem e "${d.nome}" volta como estava.`;
+  unsCb = cb; openModal("mUnsaved");
+}
+$("unsSave").onclick = async () => { closeModal("mUnsaved"); if (await saveActive() && unsCb) await unsCb(); };
+$("unsDrop").onclick = async () => { closeModal("mUnsaved"); if (unsCb) await unsCb(); };
+$("scnSaveNow").onclick = () => saveActive();
+$("scnDiscard").onclick = () => {
+  const a = activeScn(); if (!a) return;
+  if (confirm(`Descartar as alterações e voltar a parede para o cenário "${a.nome}" como estava salvo?`)) applyScenario(a, true);
+};
+function pickScenario(c) {
+  if (c.id === cfg.cenarioAtivo) {
+    // clicar no cenario ativo modificado desfaz as alteracoes: confirma antes
+    if (scnModified(c)) $("scnDiscard").click(); else toast(`A parede já está igual ao cenário "${c.nome}".`);
+    return;
+  }
+  askUnsaved(`"${c.nome}"`, () => applyScenario(c, !!dirtyScn()));
+}
+async function applyScenario(c, semPerguntar) {
   const changes = (c.paineis || []).filter(np => { const p = panelOf(Number(np.n)); return !p || p.url !== np.url || Number(p.zoom) !== Number(np.zoom) || p.nome !== np.nome; });
   const mosChange = mosSig(c.mosaico) !== mosSig(cfg.mosaico);
   if (!changes.length && !mosChange) { toast(`A parede já está igual ao cenário "${c.nome}".`); return; }
-  if ((changes.length > 3 || mosChange) && !confirm(`Aplicar o cenário "${c.nome}"? ` +
+  if (!semPerguntar && (changes.length > 3 || mosChange) && !confirm(`Aplicar o cenário "${c.nome}"? ` +
       (changes.length ? `${changes.length} painéis vão mudar` : "Os links não mudam") +
       (mosChange ? (changes.length ? " e o mosaico também (algumas janelas reabrem)." : ", mas o mosaico muda (algumas janelas reabrem).") : "."))) return;
   const ids = changes.map(p => Number(p.n)).filter(n => $("card" + n));
@@ -1378,7 +1444,7 @@ $("scnDup").onclick = () => ask({ title: "Duplicar cenário (a parede não muda)
   if (orig && nome === orig.nome) nome = nome + " (cópia)";
   try {
     const r = await api("POST", "/api/cenarios", { nome, copiarDe: id }); await loadState();
-    toast(r.msg + " Para mudar: aplique o cenário, troque os dashboards e use Gerenciar › Salvar a parede atual.");
+    toast(r.msg + " Para mudar: aplique o cenário, troque os dashboards e clique em 💾 Salvar cenário.");
   } catch (e) { toast(e.message, true); }
 });
 $("scnDel").onclick = () => ask({ title: "Excluir cenário (a parede não muda)", pick: true }, async (_, id) => {
@@ -1415,6 +1481,7 @@ let rotTick = null, lastNext = null;
 function renderRot() {
   const r = st && st.rodizio, box = $("rotSt"), op = can("operador");
   const on = !!(r && r.ativo);
+  renderUnsaved();
   $("btnRot").textContent = on ? "⟲ Rodízio ▾" : "⟲ Rodízio";
   $("btnRot").classList.toggle("primary", on);
   box.classList.toggle("hidden", !on);
@@ -1440,7 +1507,9 @@ function renderRot() {
       box.classList.add("hold");
       const desde = r.segurandoDesde ? Math.round((serverNow() - new Date(r.segurandoDesde)) / 1000) : 0;
       box.append("⚠ Segurando: ", el("b", { text: r.motivo || "alerta" }), desde > 0 ? ` · há ${fmtAge(desde)}` : "");
-      box.title = "O rodízio segue quando o vermelho sumir. ⏭ Próximo troca agora.";
+      box.title = r.segTipo === "mod"
+        ? "O rodízio espera você salvar ou descartar as alterações (no máximo 15 min). ⏭ Próximo troca agora."
+        : "O rodízio segue quando o vermelho sumir. ⏭ Próximo troca agora.";
     } else {
       box.classList.add("idle");
       const T = { pausado: "Rodízio pausado", paredePausada: "Rodízio parado (parede pausada)", foraHorario: `Fora do horário do rodízio (${r.agenda || ""})`,
@@ -1456,8 +1525,11 @@ $("rotPause").onclick = async () => {
   const r = st && st.rodizio; if (!r) return;
   try { const x = await api("POST", `/api/rodizio/${r.pausado ? "continuar" : "pausar"}`, {}); toast(x.msg); await poll(); } catch (e) { toast(e.message, true); }
 };
-$("rotNext").onclick = async () => {
+$("rotNext").onclick = () => {
   const r = st && st.rodizio; if (!r) return;
+  askUnsaved(`"${r.proximoNome || scnName(r.proximo) || "o próximo cenário"}"`, rotNextNow);
+};
+async function rotNextNow() {
   $("rotNext").disabled = true;
   try {
     const x = await api("POST", "/api/rodizio/proximo", {});
@@ -1466,7 +1538,7 @@ $("rotNext").onclick = async () => {
     await loadState(); await poll();
   } catch (e) { toast(e.message, true); }
   finally { $("rotNext").disabled = false; }
-};
+}
 
 // janela de configuração
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];

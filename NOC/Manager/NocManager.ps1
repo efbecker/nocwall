@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.10.0'
+$Version     = '1.11.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -238,6 +238,30 @@ function New-RotDefault {
   }
 }
 
+# A parede esta diferente do cenario ativo (alteracoes nao salvas)? Mesma regra da tela.
+function Get-PanelsSig($Lista) {
+  $inv = [Globalization.CultureInfo]::InvariantCulture
+  return ((@($Lista) | Where-Object { $_ } | Sort-Object { [int]$_.n } | ForEach-Object {
+    [string]::Format($inv, '{0}|{1}|{2}|{3}', [int]$_.n, [string]$_.nome, [string]$_.url, [double]$_.zoom) }) -join "`n")
+}
+function Get-MosaicSigUi($Mosaic) {
+  return ((@($Mosaic) | Where-Object { $_ } | Sort-Object { [int]$_.n } | ForEach-Object {
+    $e = if ($_.escala) { [string]$_.escala } else { 'ampliar' }
+    "$([int]$_.n):$((@($_.paineis) | ForEach-Object { [int]$_ } | Sort-Object) -join ',')|$e" }) -join ';')
+}
+function Test-ScenarioModified($c) {
+  $cen = @($c.cenarios) | Where-Object { $_ -and [string]$_.id -eq [string]$c.cenarioAtivo } | Select-Object -First 1
+  if (-not $cen) { return $false }
+  if ((Get-MosaicSigUi (Get-Mosaic $cen)) -ne (Get-MosaicSigUi (Get-Mosaic $c))) { return $true }
+  # so contam os paineis que o cenario define (os outros ficam como estao ao aplicar)
+  foreach ($np in @($cen.paineis)) {
+    if (-not $np) { continue }
+    $p = @($c.paineis) | Where-Object { $_ -and [int]$_.n -eq [int]$np.n } | Select-Object -First 1
+    if (-not $p -or (Get-PanelsSig @($p)) -ne (Get-PanelsSig @($np))) { return $true }
+  }
+  return $false
+}
+
 # Copia leve do rodizio + nomes dos cenarios (o laco principal confere a cada 5 s sem ler o paineis.json)
 function Update-RotCache($c) {
   $r = $c.rodizio; if (-not $r) { $r = New-RotDefault }
@@ -248,6 +272,7 @@ function Update-RotCache($c) {
     preCarregar = [bool]$r.preCarregar; segurarVermelho = [bool]$r.segurarVermelho
     vermelhoPct = [double]$r.vermelhoPct; segurarMaxMin = [int]$r.segurarMaxMin
     agenda = $r.agenda; nomes = $nomes; cenarioAtivo = [string]$c.cenarioAtivo
+    modificado = $(try { [bool](Test-ScenarioModified $c) } catch { $false })
   }
   $Cache['rotRed'] = [bool]($r.ativo -and $r.segurarVermelho)
 }
@@ -546,7 +571,7 @@ $WorkerScript = {
   # ---- login automatico em sites cadastrados (Conta > Logins de sites)
   # $slog[n] = @{ id; tent; ult; falhou }: no maximo 1 tentativa a cada 45 s; depois de 3 sem sair da tela
   # de login, para por 30 min (senha errada repetida pode bloquear a conta no AD).
-  $slog = @{}; $naLogin = @{}; $siteDe = @{}
+  $slog = @{}; $naLogin = @{}; $siteDe = @{}; $loginUrlOk = @{}
   $SiteEntropyW = [Text.Encoding]::UTF8.GetBytes('Scry-Site-v1')
   # site cujo endereco e o comeco do link (o mais especifico ganha); $null se nenhum
   function Find-SiteFor([string]$Url) {
@@ -778,7 +803,15 @@ $WorkerScript = {
           $s = $Cache["st$n"]
           $site = $null
           if (-not $abs.ContainsKey($n) -and -not $pausada -and $s -and $s.online -and $s.urlAtual) { $site = Find-SiteFor ([string]$s.urlAtual) }
-          if (-not $site) { $slog.Remove($n); $naLogin.Remove($n); $siteDe.Remove($n); $Cache.Remove("slog$n"); continue }
+          if (-not $site) {
+            $slog.Remove($n); $naLogin.Remove($n); $siteDe.Remove($n); $Cache.Remove("slog$n"); $loginUrlOk.Remove($n)
+            # link com /login no endereco (ex.: .../servlet/login) que ja entrou: sem campo de senha visivel nao e tela de login
+            if ($s -and $s.online -and [string]$s.urlAtual -match '^https?://[^?#]+/login([?#/]|$)' -and -not $abs.ContainsKey($n) -and -not $pausada) {
+              try { $t = Get-CdpTarget $n; if ($t -and (Test-LoginPage $t @{ campoSenha = $null }) -eq 'ok') { $loginUrlOk[$n] = $true } } catch {}
+            }
+            continue
+          }
+          $loginUrlOk.Remove($n)
           $siteDe[$n] = $site.id
           try {
             $t = Get-CdpTarget $n; if (-not $t) { continue }
@@ -828,7 +861,8 @@ $WorkerScript = {
           if (-not $s -or -not $s.online) { $c = 'offline' }
           elseif ([int]$semResp[$n] -ge 3) { $c = 'naoResponde' }
           elseif ($url -like 'chrome-error:*' -or $erroPg[$n]) { $c = 'erro' }
-          elseif ($naLogin[$n] -or $url -match '^https?://[^?#]+/login([?#/]|$)') { $c = 'login' }
+          # site com login cadastrado: vale o que a pagina mostra (campo de senha), nao o endereco
+          elseif ($naLogin[$n] -or (-not $siteDe.ContainsKey($n) -and -not $loginUrlOk[$n] -and $url -match '^https?://[^?#]+/login([?#/]|$)')) { $c = 'login' }
           elseif ($man.congeladoMin -gt 0 -and $url -match '[?&]refresh=' -and $hashDesde[$n] -and ($now - $hashDesde[$n]).TotalMinutes -ge $man.congeladoMin) { $c = 'travado' }
           if (-not $c) { $Cache.Remove("al$n"); $cond.Remove($n); continue }
           if (-not $cond[$n] -or $cond[$n].c -ne $c) { $cond[$n] = @{ c = $c; t = $now } }
@@ -1128,7 +1162,7 @@ function Invoke-ScenarioApply($cfg, $cen) {
 # Roda no laco principal (a cada <= 5 s). Estado so em memoria; a configuracao fica no paineis.json.
 $RotCfg = $null
 $Rot = @{ fase = 'desligado'; trocaEm = $null; proximo = $null; preparado = $false; preEm = $null; preQtd = 0
-          shotsEm = $null; segDesde = $null; liberado = $false; motivo = ''; ultimaTroca = (Get-Date); erro = $null; foraAplicado = $false; hist = @() }
+          shotsEm = $null; segDesde = $null; liberado = $false; motivo = ''; segTipo = $null; liberadoMod = $false; ultimaTroca = (Get-Date); erro = $null; foraAplicado = $false; hist = @() }
 
 function Get-RotSeg($rc, [string]$Id) {
   $it = @($rc.itens | Where-Object { $_.id -eq $Id }) | Select-Object -First 1
@@ -1171,6 +1205,7 @@ function Request-VisibleShots([int]$Seg) { foreach ($n in (Get-VisiblePanels)) {
 function Reset-Rotation {
   if ($Rot.fase -eq 'segurando') { $Rot.fase = 'rodando' }
   $Rot.trocaEm = $null; $Rot.preparado = $false; $Rot.preEm = $null; $Rot.shotsEm = $null; $Rot.segDesde = $null; $Rot.liberado = $false; $Rot.motivo = ''
+  $Rot.segTipo = $null; $Rot.liberadoMod = $false
   $script:Prerender.Clear()
 }
 
@@ -1236,6 +1271,21 @@ function Invoke-RotationTick {
   if (@($rc.itens).Count -lt 2 -and $rc.cenarioAtivo -eq $next) { return }     # um cenario so: nada para trocar
   $preSeg = if ($rc.preCarregar) { 30 } else { 0 }
 
+  # alguem trocou paineis e ainda nao salvou no cenario: espera (no maximo 15 min) para nao jogar a troca fora
+  if ($Rot.fase -eq 'rodando' -and $rc.modificado -and -not $Rot.liberadoMod -and $now -ge $Rot.trocaEm.AddSeconds(-($preSeg + 5))) {
+    $nm = $rc.nomes[$rc.cenarioAtivo]
+    $Rot.fase = 'segurando'; $Rot.segTipo = 'mod'; $Rot.segDesde = $now; $Rot.motivo = "alteracoes nao salvas em $nm"
+    $Rot.preparado = $false; $script:Prerender.Clear()
+    Write-Diag "RODIZIO segurando: $($Rot.motivo)"
+  }
+  if ($Rot.fase -eq 'segurando' -and $Rot.segTipo -eq 'mod') {
+    $estourou = ($now - $Rot.segDesde).TotalMinutes -ge 15
+    if ($rc.modificado -and -not $estourou) { return }
+    Write-Diag "RODIZIO segue: $(if ($estourou) { 'alteracoes nao salvas ha 15 min' } else { 'alteracoes salvas ou descartadas' })"
+    $Rot.fase = 'rodando'; $Rot.motivo = ''; $Rot.segDesde = $null; $Rot.segTipo = $null; $Rot.liberadoMod = $true
+    $Rot.trocaEm = $now.AddSeconds([math]::Max(5, $preSeg))
+  }
+
   if ($rc.segurarVermelho) {
     # miniaturas novas de todos os paineis um pouco antes da decisao
     if (-not $Rot.shotsEm -and $now -ge $Rot.trocaEm.AddSeconds(-($preSeg + 20))) { $Rot.shotsEm = $now; Request-VisibleShots 0 }
@@ -1274,7 +1324,7 @@ function Get-RotStatus {
     ativo = [bool]$rc.ativo; fase = $fase; pausado = [bool]$rc.pausado; qtd = @($rc.itens).Count
     atual = $rc.cenarioAtivo; proximo = $nx; proximoNome = $(if ($nx) { $rc.nomes[$nx] } else { $null })
     trocaEm = $(if ($Rot.trocaEm) { $Rot.trocaEm.ToString('s') } else { $null }); faltaSeg = $falta
-    motivo = $Rot.motivo; segurandoDesde = $(if ($Rot.segDesde) { $Rot.segDesde.ToString('s') } else { $null })
+    motivo = $Rot.motivo; segTipo = $Rot.segTipo; segurandoDesde = $(if ($Rot.segDesde) { $Rot.segDesde.ToString('s') } else { $null })
     preCarregados = $(if ($Rot.preparado) { [int]$Rot.preQtd } else { $null }); erro = $Rot.erro
     agenda = $(if ($rc.agenda -and $rc.agenda.ativo) { "$($rc.agenda.inicio)-$($rc.agenda.fim)" } else { $null })
   }
