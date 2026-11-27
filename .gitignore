@@ -1,5 +1,6 @@
 # dados de producao - nunca versionar
 NOC/Manager/users.json
+NOC/Manager/sites.json
 NOC/Manager/setup.json
 NOC/Manager/audit.log
 NOC/Manager/diag.log*

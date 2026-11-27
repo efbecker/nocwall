@@ -298,6 +298,7 @@
           <button id="btnPwd">Minha senha</button>
           <button id="btnManut">Manutenção automática</button>
           <button id="btnGraf" class="hidden">Login do Grafana</button>
+          <button id="btnSites" class="hidden">Logins de sites</button>
           <button id="btnUsers" class="hidden">Usuários</button>
           <button id="btnAudit" class="hidden">Auditoria</button>
           <button id="btnLogout">Sair</button>
@@ -415,7 +416,8 @@
     <label for="lNome">Nome</label>
     <input id="lNome" maxlength="60">
     <label for="lUrl">Link</label>
-    <textarea id="lUrl" rows="4" spellcheck="false"></textarea>
+    <textarea id="lUrl" rows="4" spellcheck="false" placeholder="https://..."></textarea>
+    <div class="hint" style="word-break:normal">Pode ser qualquer site: Grafana, BOSS, OpenFlow… Se o site pede login, um admin cadastra o usuário em Conta › Logins de sites.</div>
     <div class="warns" id="lWarns"></div>
     <div class="foot">
       <button data-close>Cancelar</button>
@@ -468,7 +470,7 @@
   <div class="box">
     <h2>Manutenção automática</h2>
     <div class="muted">O Scry confere cada painel cerca de 1 vez por minuto e corrige sozinho o que der: no máximo uma ação a cada 5 min por painel, tudo registrado na auditoria.</div>
-    <label class="chk"><input type="checkbox" id="mnAuto"> Corrigir automaticamente (reabrir janela sem resposta, recarregar erro de rede ou imagem congelada, refazer o login do Grafana)</label>
+    <label class="chk"><input type="checkbox" id="mnAuto"> Corrigir automaticamente (reabrir janela sem resposta, recarregar erro de rede ou imagem congelada, refazer o login do Grafana; os sites de Logins de sites entram sozinhos)</label>
     <label for="mnMin">Considerar congelado após (minutos sem mudar a imagem, só em links com <code>refresh=</code>; 0 desliga)</label>
     <input id="mnMin" type="number" min="0" max="240" step="1">
     <label for="mnHora">Reabertura diária preventiva (uma janela por vez, a cada 40 s; vazio desliga)</label>
@@ -553,6 +555,40 @@
       <button data-close>Fechar</button>
       <button id="gTest">Testar conexão</button>
       <button class="primary" id="gSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: LOGINS DE SITES ============ -->
+<div class="modal hidden" id="mSites">
+  <div class="box wide">
+    <h2>Logins de sites</h2>
+    <div class="muted">Para dashboards de outros sites (BOSS, OpenFlow…). Quando um painel desse endereço mostrar a tela de login, o Scry preenche usuário e senha e clica em entrar sozinho. A senha fica guardada protegida pelo Windows e nunca é mostrada de volta. Use um usuário <b>só leitura</b>, criado só para a parede.</div>
+    <table>
+      <thead><tr><th>Nome</th><th>Endereço</th><th>Usuário</th><th>Na parede agora</th><th></th></tr></thead>
+      <tbody id="sBody"></tbody>
+    </table>
+    <h2 style="margin-top:20px" id="sFormTitle">Novo login</h2>
+    <div class="grid2">
+      <div><label for="sNome">Nome</label><input id="sNome" maxlength="60" placeholder="BOSS"></div>
+      <div><label for="sBase">Endereço (o começo dos links desse site)</label><input id="sBase" placeholder="http://10.20.20.6/boss" autocomplete="off" spellcheck="false"></div>
+      <div><label for="sUser">Usuário</label><input id="sUser" autocomplete="off" spellcheck="false"></div>
+      <div><label for="sPass">Senha</label><input id="sPass" type="password" autocomplete="new-password"></div>
+    </div>
+    <label class="chk"><input type="checkbox" id="sLembrar" checked> Marcar “Lembrar-se de mim” / “Manter conectado”, se a tela tiver</label>
+    <details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer">Avançado: quando o Scry não acha os campos sozinho</summary>
+      <div class="hint" style="word-break:normal">Seletores CSS opcionais. Em branco, o Scry usa o campo de senha da tela, o campo de texto antes dele e o botão Entrar/Login. Exemplo: <code>#username</code>, <code>input[name=senha]</code>, <code>button.btn-login</code>.</div>
+      <div class="grid3">
+        <div><label for="sCU">Campo do usuário</label><input id="sCU" maxlength="300" spellcheck="false"></div>
+        <div><label for="sCS">Campo da senha</label><input id="sCS" maxlength="300" spellcheck="false"></div>
+        <div><label for="sBt">Botão de entrar</label><input id="sBt" maxlength="300" spellcheck="false"></div>
+      </div>
+    </details>
+    <div class="foot">
+      <button data-close>Fechar</button>
+      <button id="sCancel" class="hidden">Cancelar edição</button>
+      <button class="primary" id="sSave">Salvar</button>
     </div>
   </div>
 </div>
@@ -724,6 +760,7 @@ async function startApp() {
   $("who").textContent = `${me.nome} · ${me.papel}`;
   $("btnUsers").classList.toggle("hidden", !can("admin"));
   $("btnGraf").classList.toggle("hidden", !can("admin"));
+  $("btnSites").classList.toggle("hidden", !can("admin"));
   $("btnAudit").classList.toggle("hidden", !can("admin"));
   document.querySelectorAll(".adm-only").forEach(x => x.classList.toggle("hidden", !can("admin")));
   setSelMode(false);
@@ -1188,7 +1225,7 @@ let libEditing = null;
 function openLibEdit(it) {
   libEditing = it ? it.id : null;
   $("lTitle").textContent = it ? "Editar item da biblioteca" : "Adicionar à biblioteca";
-  $("lNome").value = it ? it.nome : ""; $("lUrl").value = it ? it.url : "https://grafana.armazem.cloud/d/";
+  $("lNome").value = it ? it.nome : ""; $("lUrl").value = it ? it.url : "";
   renderWarns("lWarns", $("lUrl").value);
   openModal("mLib"); $("lNome").focus();
 }
@@ -1546,6 +1583,62 @@ $("gDel").onclick = async () => {
   if (!confirm("Remover o login do Grafana? Os painéis que pedirem login vão ficar na tela de login.")) return;
   try { const r = await api("DELETE", "/api/grafana"); toast(r.msg); closeModal("mGraf"); } catch (e) { toast(e.message, true); }
 };
+
+// ---------------------------------------------------------------- logins de sites (admin)
+let sitesList = [], siteEditing = null;
+const fmtDt = (d) => d ? new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "?";
+function siteStatus(x) {
+  if (!x.estado || !x.estado.length) return "—";
+  return x.estado.map(e => {
+    const t = { entrando: "entrando", recusado: "login não entrou", seletor: "seletor inválido", erro: "erro" }[e.estado] || e.estado;
+    return `painel ${e.n}: ${t}${e.msg ? " (" + e.msg + ")" : ""}`;
+  }).join("\n");
+}
+function siteForm(x) {
+  siteEditing = x ? x.id : null;
+  $("sFormTitle").textContent = x ? `Editar login: ${x.nome}` : "Novo login";
+  $("sNome").value = x ? x.nome : ""; $("sBase").value = x ? x.base : ""; $("sUser").value = x ? x.usuario : ""; $("sPass").value = "";
+  $("sPass").placeholder = x && x.temSenha ? "•••••••• (salva; digite só para trocar)" : "";
+  $("sLembrar").checked = x ? !!x.lembrar : true;
+  $("sCU").value = x ? (x.campoUsuario || "") : ""; $("sCS").value = x ? (x.campoSenha || "") : ""; $("sBt").value = x ? (x.botao || "") : "";
+  $("sCancel").classList.toggle("hidden", !x);
+}
+function renderSites() {
+  const tb = $("sBody"); tb.innerHTML = "";
+  if (!sitesList.length) tb.append(el("tr", {}, el("td", { colspan: "5", class: "muted", text: "Nenhum login cadastrado." })));
+  for (const x of sitesList) {
+    tb.append(el("tr", {},
+      el("td", { text: x.nome, title: `Salvo por ${x.por || "?"} em ${fmtDt(x.atualizado)}` }),
+      el("td", {}, el("code", { text: x.base })),
+      el("td", { text: x.usuario }),
+      el("td", { class: "muted", style: "white-space:pre-line", text: siteStatus(x) }),
+      el("td", { style: "white-space:nowrap" },
+        el("button", { class: "small", text: "Entrar agora", title: "Tenta o login de novo nos painéis desse site que estão na tela de login", onclick: () => siteRetry(x) }),
+        el("button", { class: "small", text: "✎", title: "Editar", onclick: () => siteForm(x) }),
+        el("button", { class: "small danger", text: "✕", title: "Remover", onclick: () => siteDel(x) }))));
+  }
+}
+async function loadSites() { sitesList = (await api("GET", "/api/sites")).sites || []; renderSites(); }
+$("btnSites").onclick = async () => {
+  try { await loadSites(); siteForm(null); openModal("mSites"); $("sNome").focus(); } catch (e) { toast(e.message, true); }
+};
+$("sCancel").onclick = () => siteForm(null);
+$("sSave").onclick = async () => {
+  const body = { nome: $("sNome").value.trim(), base: $("sBase").value.trim(), usuario: $("sUser").value.trim(), senha: $("sPass").value,
+    lembrar: $("sLembrar").checked, campoUsuario: $("sCU").value.trim(), campoSenha: $("sCS").value.trim(), botao: $("sBt").value.trim() };
+  try {
+    const r = siteEditing ? await api("PUT", `/api/sites/${siteEditing}`, body) : await api("POST", "/api/sites", body);
+    toast(r.msg); siteForm(null); await loadSites();
+  } catch (e) { toast(e.message, true); }
+};
+async function siteRetry(x) {
+  try { const r = await api("POST", `/api/sites/${x.id}/entrar`); toast(r.msg); setTimeout(() => { if (!$("mSites").classList.contains("hidden")) loadSites().catch(() => {}); }, 15000); }
+  catch (e) { toast(e.message, true); }
+}
+async function siteDel(x) {
+  if (!confirm(`Remover o login de "${x.nome}"? Os painéis desse site que pedirem login vão ficar na tela de login.`)) return;
+  try { const r = await api("DELETE", `/api/sites/${x.id}`); toast(r.msg); if (siteEditing === x.id) siteForm(null); await loadSites(); } catch (e) { toast(e.message, true); }
+}
 
 // ---------------------------------------------------------------- minha senha
 $("btnPwd").onclick = () => { ["pA", "pN", "pC"].forEach(i => $(i).value = ""); openModal("mPwd"); $("pA").focus(); };

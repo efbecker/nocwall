@@ -279,6 +279,11 @@ function Set-ProfileZoom($prof, $factor) {
     # sem o balao do Google Tradutor ("traduzir esta pagina?") nas telas
     if (-not $json.translate) { $json | Add-Member -NotePropertyName translate -NotePropertyValue (New-Object psobject) -Force }
     $json.translate | Add-Member -NotePropertyName enabled -NotePropertyValue $false -Force
+    # sem o balao "Salvar senha?" nem o aviso de senha vazada depois do login automatico (Logins de sites)
+    $json | Add-Member -NotePropertyName credentials_enable_service -NotePropertyValue $false -Force
+    if (-not $json.profile) { $json | Add-Member -NotePropertyName profile -NotePropertyValue (New-Object psobject) -Force }
+    $json.profile | Add-Member -NotePropertyName password_manager_enabled -NotePropertyValue $false -Force
+    $json.profile | Add-Member -NotePropertyName password_manager_leak_detection -NotePropertyValue $false -Force
     $text = $json | ConvertTo-Json -Depth 100 -Compress
     [IO.File]::WriteAllText($prefFile, $text, (New-Object Text.UTF8Encoding $false))   # UTF-8 sem BOM
   } catch {

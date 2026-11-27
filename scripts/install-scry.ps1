@@ -144,7 +144,7 @@
       # ---------------------------------------------------------------- 2. copiar e 3. instalar
       Say "[2/4] Copiando para $Root..."
       New-Item -ItemType Directory -Path $Root -Force | Out-Null
-      $keep = @('paineis.json', 'grafana.cred', 'grafana.json', 'layout.json', 'pausado.json', 'Manager\users.json', 'Manager\audit.log')
+      $keep = @('paineis.json', 'grafana.cred', 'grafana.json', 'layout.json', 'pausado.json', 'Manager\users.json', 'Manager\sites.json', 'Manager\audit.log')
       foreach ($f in Get-ChildItem $src -Recurse -File) {
         $rel2 = $f.FullName.Substring($src.TrimEnd('\').Length + 1)
         $dst = Join-Path $Root $rel2

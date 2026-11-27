@@ -22,6 +22,7 @@ C:\NOC\
     www\index.html          interface
     www\setup.html          assistente de configuração (só aparece enquanto não existe nenhum usuário)
     users.json  audit.log  diag.log
+    sites.json              Logins de sites (senhas protegidas pelo Windows/DPAPI)
     backups\                backups do Update (só SYSTEM e Administradores)
 ```
 
@@ -146,6 +147,7 @@ Configure em **Conta → Manutenção automática** (todos veem; só o admin alt
 | Janela não responde (3 conferências seguidas) | não responde | reabre a janela |
 | Página de erro do Chrome (sem rede/DNS) há 1 min | erro de rede | recarrega |
 | Tela de login do Grafana há 2 min | tela de login | refaz o login automático |
+| Campo de senha num site de **Logins de sites** | tela de login (após 2 min) | preenche e entra em até 10 s; no máximo 3 tentativas, depois espera 30 min |
 | Imagem igual há 15 min num link com `refresh=` | congelado | recarrega; se continuar, reabre; depois só alerta |
 
 - No máximo uma ação a cada 5 min por painel, e nunca no meio de uma ação de alguém. Nada acontece com a parede pausada.

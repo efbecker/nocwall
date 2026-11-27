@@ -60,6 +60,18 @@ Se os dashboards pedem login, informe um usuário **só leitura** no assistente 
 
 ![Janela do Login do Grafana](docs/img/grafana-login.png)
 
+## Outros sites (BOSS, OpenFlow…)
+
+A biblioteca aceita qualquer site, não só Grafana: em **+ Adicionar**, cole o link da tela que deve ficar na parede.
+
+Se o site pede login, um admin cadastra em **Conta → Logins de sites**: nome, endereço (o começo dos links, ex.: `http://10.20.20.6/boss`), usuário e senha. Quando um painel desse endereço mostrar um campo de senha, o Scry preenche usuário e senha, marca "Lembrar-se de mim" e clica em entrar. Isso também resolve a sessão que expira no meio do dia.
+
+- A senha fica protegida pelo Windows (DPAPI), num arquivo que só SYSTEM e Administradores leem, e nunca é mostrada de volta. Ela só é entregue a uma página que está no endereço cadastrado.
+- Se o login não sair da tela depois de 3 tentativas, o Scry para por 30 min (para não bloquear a conta no AD) e avisa na auditoria. **Entrar agora** tenta de novo na hora.
+- Use um usuário só leitura, criado só para a parede. Em sites `http://` a senha passa pela rede sem criptografia.
+- Não funciona com código extra (2FA) ou captcha. Se o Scry não achar os campos sozinho, preencha os seletores em **Avançado**.
+- Sem cadastrar nada, também dá para entrar uma vez pela própria parede: o Chrome de cada painel guarda a sessão.
+
 ## Usar
 
 - **Trocar um dashboard:** passe o mouse num painel e clique em ✎ **Editar**, ou arraste um item da **Biblioteca** para o painel.
@@ -93,6 +105,7 @@ powershell -ExecutionPolicy Bypass -File C:\NOC\Update-NocManager.ps1 -Reverter
 | Faixa vermelha "Chrome não instalado" | rode o comando de instalação de novo (ele instala o Chrome) e clique em **Reabrir tudo** |
 | Faixa vermelha "Usuário da parede não está logado" | entre no Windows com o usuário da parede (ou ative o logon automático) |
 | Painéis na tela de login do Grafana | **Conta → Login do Grafana → Testar conexão** |
+| Painel de outro site parado na tela de login | **Conta → Logins de sites**: confira usuário e senha e clique em **Entrar agora**; veja a coluna "Na parede agora" |
 | Janelas do Chrome não abrem | confira o logon automático e a tarefa `NOC-VideoWall` no *Agendador de Tarefas* |
 | A página não abre | veja `C:\NOC\Manager\diag.log` e a tarefa `NOC-Manager` |
 | Esqueci a senha do `admin` | `powershell -ExecutionPolicy Bypass -File C:\NOC\Manager\NocManager.ps1 -NovoAdmin admin` |
