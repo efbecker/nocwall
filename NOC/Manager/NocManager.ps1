@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.11.0'
+$Version     = '1.12.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -344,6 +344,8 @@ function Update-EmptyCache($c) {
   $com = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $com[[int]$p.n] = 1 } }
   $v = @{}; for ($i = 0; $i -lt $PanelCount; $i++) { if (-not $com.ContainsKey($i)) { $v[$i] = $true } }
   $Cache['vazios'] = $v
+  $u = @{}; foreach ($p in @($c.paineis)) { if ($p -and [string]$p.url) { $u[[int]$p.n] = [string]$p.url } }
+  $Cache['urls'] = $u               # link de cada painel (o login automatico reabre o painel nele)
 }
 
 # ---------------------------------------------------------------- mosaico (paineis mesclados)
@@ -571,20 +573,46 @@ $WorkerScript = {
   # ---- login automatico em sites cadastrados (Conta > Logins de sites)
   # $slog[n] = @{ id; tent; ult; falhou }: no maximo 1 tentativa a cada 45 s; depois de 3 sem sair da tela
   # de login, para por 30 min (senha errada repetida pode bloquear a conta no AD).
-  $slog = @{}; $naLogin = @{}; $siteDe = @{}; $loginUrlOk = @{}
+  $slog = @{}; $naLogin = @{}; $siteDe = @{}; $loginUrlOk = @{}; $copiaEm = @{}; $copiaQtd = @{}; $siteUlt = @{}
   $SiteEntropyW = [Text.Encoding]::UTF8.GetBytes('Scry-Site-v1')
   # site cujo endereco e o comeco do link (o mais especifico ganha); $null se nenhum
-  function Find-SiteFor([string]$Url) {
-    $best = $null
+  function Find-SiteFor([string]$Url, $N = -1) {
+    # login so de alguns paineis (soPaineis) vale mais que o login geral do mesmo endereco
+    $best = $null; $bestScore = -1
     foreach ($x in @($Cache['sites'])) {
       if (-not $x -or -not $x.base) { continue }
       $b = [string]$x.base
       if ($Url.Length -ge $b.Length -and $Url.StartsWith($b, [StringComparison]::OrdinalIgnoreCase) -and
           ($Url.Length -eq $b.Length -or '/?#'.Contains([string]$Url[$b.Length]) -or $b.EndsWith('/'))) {
-        if (-not $best -or $b.Length -gt $best.base.Length) { $best = $x }
+        $so = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+        $score = $b.Length * 2
+        if ($so.Count) { if ($N -lt 0 -or $so -notcontains [int]$N) { continue }; $score++ }
+        if ($score -gt $bestScore) { $best = $x; $bestScore = $score }
       }
     }
     return $best
+  }
+  # Copia os cookies do site do painel que ja esta dentro para o que esta na tela de login e abre de novo o
+  # link do painel (o Chrome de cada painel tem perfil proprio).
+  function Copy-SiteSession($De, $Para, $Site, [string]$Link) {
+    $urlDe = [string]$De.url
+    $ck = Invoke-CdpCall $De.webSocketDebuggerUrl 'Network.getCookies' @{ urls = @($urlDe, ([string]$Site.base + '/')) } 5
+    $lista = @(foreach ($c in @($ck.cookies)) {
+      if (-not $c) { continue }
+      $o = [ordered]@{ name = [string]$c.name; value = [string]$c.value; domain = [string]$c.domain; path = [string]$c.path
+                       secure = [bool]$c.secure; httpOnly = [bool]$c.httpOnly }
+      if ($c.sameSite) { $o.sameSite = [string]$c.sameSite }
+      if (-not $c.session -and $c.expires -and [double]$c.expires -gt 0) { $o.expires = [double]$c.expires }
+      $o
+    })
+    if (-not $lista.Count) { throw "o painel de origem nao tem cookies de $($Site.base)" }
+    Invoke-CdpCall $Para.webSocketDebuggerUrl 'Network.setCookies' @{ cookies = $lista } 5 | Out-Null
+    # link do painel; se ele for a propria tela de login/logout, abre a pagina em que o outro painel esta
+    $dest = $Link
+    if (-not $dest -or $dest -match '(?i)log_?in|log_?out|logon|logoff|signin|sign_in|/sair' -or -not $dest.StartsWith([string]$Site.base, [StringComparison]::OrdinalIgnoreCase)) { $dest = $urlDe }
+    if ($dest -match '(?i)log_?out|logoff' -or -not $dest.StartsWith([string]$Site.base, [StringComparison]::OrdinalIgnoreCase)) { $dest = [string]$Site.base + '/' }
+    Invoke-CdpCall $Para.webSocketDebuggerUrl 'Page.navigate' @{ url = $dest } 5 | Out-Null
+    return $lista.Count
   }
   # Ha um campo de senha visivel? (sem enviar a senha para a pagina)
   function Test-LoginPage($T, $Site) {
@@ -796,15 +824,22 @@ $WorkerScript = {
       }
 
       # ---- login automatico em sites cadastrados (a cada 10 s, so nos paineis de um site com login)
+      # Cada painel e um Chrome com perfil proprio (cookies separados). Varios paineis do mesmo site com o
+      # mesmo usuario fariam um login cada, e site que aceita uma sessao por usuario (BOSS) derruba as
+      # outras: loga e desloga sem parar. Por isso: 1) painel na tela de login primeiro recebe a sessao
+      # (cookies) de outro painel do mesmo site que ja esta dentro; 2) so um login de verdade por site a
+      # cada 45 s; os outros paineis esperam e copiam a sessao dele.
       if ($full) {
         $rs = $Cache['slogReset']
-        if ($rs) { $Cache.Remove('slogReset'); foreach ($k in @($slog.Keys)) { if ($slog[$k].id -eq $rs) { $slog.Remove($k) } } }
+        if ($rs) { $Cache.Remove('slogReset'); foreach ($k in @($slog.Keys)) { if ($slog[$k].id -eq $rs) { $slog.Remove($k) } }; foreach ($k in @($siteUlt.Keys)) { if ($k -eq $rs) { $siteUlt.Remove($k) } } }
+        # 1a passada: em que site cada painel esta e se mostra a tela de login
+        $det = @{}
         foreach ($n in 0..($PanelCount - 1)) {
           $s = $Cache["st$n"]
           $site = $null
-          if (-not $abs.ContainsKey($n) -and -not $pausada -and $s -and $s.online -and $s.urlAtual) { $site = Find-SiteFor ([string]$s.urlAtual) }
+          if (-not $abs.ContainsKey($n) -and -not $pausada -and $s -and $s.online -and $s.urlAtual) { $site = Find-SiteFor ([string]$s.urlAtual) $n }
           if (-not $site) {
-            $slog.Remove($n); $naLogin.Remove($n); $siteDe.Remove($n); $Cache.Remove("slog$n"); $loginUrlOk.Remove($n)
+            $slog.Remove($n); $naLogin.Remove($n); $siteDe.Remove($n); $Cache.Remove("slog$n"); $loginUrlOk.Remove($n); $copiaEm.Remove($n); $copiaQtd.Remove($n)
             # link com /login no endereco (ex.: .../servlet/login) que ja entrou: sem campo de senha visivel nao e tela de login
             if ($s -and $s.online -and [string]$s.urlAtual -match '^https?://[^?#]+/login([?#/]|$)' -and -not $abs.ContainsKey($n) -and -not $pausada) {
               try { $t = Get-CdpTarget $n; if ($t -and (Test-LoginPage $t @{ campoSenha = $null }) -eq 'ok') { $loginUrlOk[$n] = $true } } catch {}
@@ -815,9 +850,17 @@ $WorkerScript = {
           $siteDe[$n] = $site.id
           try {
             $t = Get-CdpTarget $n; if (-not $t) { continue }
-            $res = Test-LoginPage $t $site
+            $det[$n] = @{ site = $site; t = $t; res = (Test-LoginPage $t $site) }
+          } catch {
+            $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'erro'; desde = $now.ToString('s'); msg = $_.Exception.Message }
+          }
+        }
+        # 2a passada: paineis dentro do site ficam como estao; os da tela de login copiam a sessao ou entram
+        foreach ($n in @($det.Keys | Sort-Object)) {
+          $d = $det[$n]; $site = $d.site; $t = $d.t; $res = $d.res
+          try {
             if ($res -ne 'login') {
-              $naLogin.Remove($n)
+              $naLogin.Remove($n); $copiaEm.Remove($n); $copiaQtd.Remove($n)
               if ($slog.ContainsKey($n) -and $slog[$n].tent -gt 0 -and $res -eq 'ok') { Add-Evento "painel ${n}: login em $($site.nome) feito" }
               $slog.Remove($n)
               if ($res -eq 'seletor') { $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'seletor'; desde = $now.ToString('s'); msg = 'seletor do campo de senha invalido' } }
@@ -827,18 +870,39 @@ $WorkerScript = {
             $naLogin[$n] = $true
             if (-not $slog.ContainsKey($n) -or $slog[$n].id -ne $site.id) { $slog[$n] = @{ id = $site.id; tent = 0; ult = $null; falhou = $null; desde = $now; msg = '' } }
             $L = $slog[$n]
+
+            # outro painel do mesmo site ja esta dentro: usa a mesma sessao (1 copia por minuto, no maximo 2
+            # seguidas; se nao adiantar, faz o login normal)
+            $doador = @($det.Keys | Where-Object { $_ -ne $n -and $det[$_].site.id -eq $site.id -and $det[$_].res -eq 'ok' } | Sort-Object) | Select-Object -First 1
+            if ([int]$copiaQtd[$n] -ge 2) { $doador = $null }
+            if ($null -ne $doador -and (-not $copiaEm.ContainsKey($n) -or ($now - $copiaEm[$n]).TotalSeconds -ge 60)) {
+              $copiaEm[$n] = $now; $copiaQtd[$n] = [int]$copiaQtd[$n] + 1
+              $lk = ''; if ($Cache['urls']) { $lk = [string]$Cache['urls'][$n] }
+              $qtd = Copy-SiteSession $det[$doador].t $t $site $lk
+              $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'entrando'; desde = $L.desde.ToString('s'); msg = "sessao copiada do painel $doador" }
+              Add-Evento "painel ${n}: tela de login de $($site.nome); usando a sessao do painel $doador ($qtd cookies), sem novo login"
+              $Cache["pedido$n"] = $now.AddSeconds(5)
+              continue
+            }
+            if ($null -ne $doador -and ($now - $copiaEm[$n]).TotalSeconds -lt 60) { continue }   # acabou de copiar: espera a pagina
+
             if ($L.falhou) {
               if (($now - $L.falhou).TotalMinutes -lt 30) { continue }
               $L.falhou = $null; $L.tent = 0
             }
             if ($L.ult -and ($now - $L.ult).TotalSeconds -lt 45) { continue }
+            # um login de verdade por site de cada vez: os outros paineis esperam e depois copiam a sessao
+            if ($siteUlt.ContainsKey($site.id) -and ($now - $siteUlt[$site.id]).TotalSeconds -lt 45) {
+              $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'entrando'; desde = $L.desde.ToString('s'); msg = 'esperando o login de outro painel deste site' }
+              continue
+            }
             if ($L.tent -ge 3) {
               $L.falhou = $now
               $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'recusado'; desde = $L.desde.ToString('s'); msg = "3 tentativas sem sair da tela de login ($($L.msg)); nova tentativa em 30 min" }
               Add-Evento "painel ${n}: login automatico em $($site.nome) nao entrou depois de 3 tentativas; tenta de novo em 30 min (confira usuario e senha em Conta > Logins de sites)"
               continue
             }
-            $L.tent++; $L.ult = $now
+            $L.tent++; $L.ult = $now; $siteUlt[$site.id] = $now
             $r = Invoke-SiteLogin $t $site
             $L.msg = $r
             $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'entrando'; desde = $L.desde.ToString('s'); msg = "tentativa $($L.tent): $r" }
@@ -1467,7 +1531,8 @@ function Save-Sites($Lista) {
 function Update-SitesCache($Lista) {
   $Cache['sites'] = @($Lista | ForEach-Object {
     [pscustomobject]@{ id = [string]$_.id; nome = [string]$_.nome; base = [string]$_.base; usuario = [string]$_.usuario; senha = [string]$_.senha
-      lembrar = [bool]$_.lembrar; campoUsuario = [string]$_.campoUsuario; campoSenha = [string]$_.campoSenha; botao = [string]$_.botao }
+      lembrar = [bool]$_.lembrar; campoUsuario = [string]$_.campoUsuario; campoSenha = [string]$_.campoSenha; botao = [string]$_.botao
+      soPaineis = @($_.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ }) }
   })
 }
 # Endereco do site: o comeco dos links (ex.: http://10.20.20.6/boss). Ignora ?... e #...; $null se invalido
@@ -1487,7 +1552,17 @@ function Get-PublicSite($x) {
   }
   return [ordered]@{ id = $x.id; nome = $x.nome; base = $x.base; usuario = $x.usuario; temSenha = [bool]$x.senha; lembrar = [bool]$x.lembrar
     campoUsuario = $x.campoUsuario; campoSenha = $x.campoSenha; botao = $x.botao; atualizado = $x.atualizado; por = $x.por
+    soPaineis = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
     paineis = $paineis; estado = $estado }
+}
+function Get-SoPaineis($b) { return @(@($b.soPaineis) | Where-Object { $null -ne $_ -and "$_" -ne '' } | ForEach-Object { [int]$_ } | Sort-Object -Unique) }
+# dois logins do mesmo endereco so convivem se valerem para paineis diferentes
+function Test-SiteConflict($x, [string]$Base, $So) {
+  if ([string]$x.base -ne $Base) { return $false }
+  $a = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+  if (-not $a.Count -and -not @($So).Count) { return $true }
+  if (-not $a.Count -or -not @($So).Count) { return $false }
+  return [bool](@($a | Where-Object { @($So) -contains $_ }).Count)
 }
 function Test-SiteInput($b) {
   $nome = ([string]$b.nome).Trim()
@@ -1496,6 +1571,7 @@ function Test-SiteInput($b) {
   $u = ([string]$b.usuario).Trim()
   if (-not $u -or $u.Length -gt 200) { return 'Informe o usuario (ate 200 caracteres).' }
   if (([string]$b.senha).Length -gt 500) { return 'Senha longa demais.' }
+  foreach ($v in @($b.soPaineis)) { $i = 0; if ($null -eq $v -or -not [int]::TryParse([string]$v, [ref]$i) -or $i -lt 0 -or $i -ge $MaxPanels) { return 'Paineis invalidos: use numeros separados por virgula (ex.: 8, 12).' } }
   foreach ($k in 'campoUsuario', 'campoSenha', 'botao') { if (([string]$b.$k).Length -gt 300) { return "Campo '$k' longo demais (ate 300 caracteres)." } }
   return $null
 }
@@ -1951,11 +2027,12 @@ function Invoke-Route($Ctx) {
       $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
       if (-not [string]$b.senha) { Send-Json $Ctx 400 @{ erro = 'Informe a senha.' }; return }
       $base = ConvertTo-SiteBase ([string]$b.base)
-      if ($lista | Where-Object { $_.base -eq $base }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco.' }; return }
+      $so = Get-SoPaineis $b
+      if ($lista | Where-Object { Test-SiteConflict $_ $base $so }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco (nos mesmos paineis). Para logins diferentes por painel, preencha "So nos paineis".' }; return }
       $item = [pscustomobject]@{ id = ('s' + [guid]::NewGuid().ToString('N').Substring(0, 10)); nome = ([string]$b.nome).Trim(); base = $base
         usuario = ([string]$b.usuario).Trim(); senha = (Protect-SiteSecret ([string]$b.senha)); lembrar = ($b.lembrar -ne $false)
         campoUsuario = ([string]$b.campoUsuario).Trim(); campoSenha = ([string]$b.campoSenha).Trim(); botao = ([string]$b.botao).Trim()
-        atualizado = (Get-Date -Format s); por = $who }
+        soPaineis = $so; atualizado = (Get-Date -Format s); por = $who }
       Save-Sites (@($lista) + $item)
       Write-Audit $who $ip 'SITE_LOGIN_ADICIONADO' "nome=$($item.nome) base=$base usuario=$($item.usuario)"
       Send-Json $Ctx 200 @{ ok = $true; id = $item.id; msg = "Login de '$($item.nome)' salvo. Os paineis desse site na tela de login entram em ate 15 s." }; return
@@ -1971,13 +2048,15 @@ function Invoke-Route($Ctx) {
       $b = Read-Body $Ctx
       $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
       $base = ConvertTo-SiteBase ([string]$b.base)
-      if ($lista | Where-Object { $_.base -eq $base -and $_.id -ne $sid }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco.' }; return }
+      $so = Get-SoPaineis $b
+      if ($lista | Where-Object { $_.id -ne $sid -and (Test-SiteConflict $_ $base $so) }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco (nos mesmos paineis). Para logins diferentes por painel, preencha "So nos paineis".' }; return }
       # a senha salva nunca vai para outro endereco
       if (-not [string]$b.senha -and $item.base -ne $base) { Send-Json $Ctx 400 @{ erro = 'Trocou o endereco: informe a senha de novo.' }; return }
       $item.nome = ([string]$b.nome).Trim(); $item.base = $base; $item.usuario = ([string]$b.usuario).Trim()
       if ([string]$b.senha) { $item.senha = Protect-SiteSecret ([string]$b.senha) }
       $item.lembrar = ($b.lembrar -ne $false)
       $item.campoUsuario = ([string]$b.campoUsuario).Trim(); $item.campoSenha = ([string]$b.campoSenha).Trim(); $item.botao = ([string]$b.botao).Trim()
+      $item | Add-Member -NotePropertyName soPaineis -NotePropertyValue $so -Force
       $item.atualizado = (Get-Date -Format s); $item.por = $who
       Save-Sites $lista
       $Cache['slogReset'] = $sid

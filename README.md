@@ -67,6 +67,8 @@ A biblioteca aceita qualquer site, não só Grafana: em **+ Adicionar**, cole o 
 Se o site pede login, um admin cadastra em **Conta → Logins de sites**: nome, endereço (o começo dos links, ex.: `http://10.20.20.6/boss`), usuário e senha. Quando um painel desse endereço mostrar um campo de senha, o Scry preenche usuário e senha, marca "Lembrar-se de mim" e clica em entrar. Isso também resolve a sessão que expira no meio do dia.
 
 - A senha fica protegida pelo Windows (DPAPI), num arquivo que só SYSTEM e Administradores leem, e nunca é mostrada de volta. Ela só é entregue a uma página que está no endereço cadastrado.
+- Vários painéis do mesmo site com o mesmo login dividem uma única sessão: só um entra e os outros recebem a sessão dele. Isso evita o "loga e desloga" de sites que aceitam uma sessão por usuário, como o BOSS.
+- Para um usuário diferente em cada painel, cadastre um login por painel com o mesmo endereço e preencha **Só nos painéis** (ex.: `12`).
 - Se o login não sair da tela depois de 3 tentativas, o Scry para por 30 min (para não bloquear a conta no AD) e avisa na auditoria. **Entrar agora** tenta de novo na hora.
 - Use um usuário só leitura, criado só para a parede. Em sites `http://` a senha passa pela rede sem criptografia.
 - Não funciona com código extra (2FA) ou captcha. Se o Scry não achar os campos sozinho, preencha os seletores em **Avançado**.
