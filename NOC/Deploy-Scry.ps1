@@ -127,7 +127,7 @@ if (Same-Path $src $Root) {
 } else {
   New-Item -ItemType Directory -Path $Root -Force | Out-Null
   # dados de producao que possam existir no destino nunca sao sobrescritos
-  $keep = @('paineis.json', 'grafana.cred', 'grafana.json', 'layout.json', 'pausado.json', 'Manager\users.json', 'Manager\audit.log')
+  $keep = @('paineis.json', 'grafana.cred', 'grafana.json', 'layout.json', 'pausado.json', 'Manager\users.json', 'Manager\sites.json', 'Manager\audit.log')
   $n = 0
   foreach ($f in Get-ChildItem $src -Recurse -File) {
     $rel = $f.FullName.Substring($src.TrimEnd('\').Length + 1)

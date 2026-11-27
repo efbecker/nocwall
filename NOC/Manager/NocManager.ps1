@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.9.0'
+$Version     = '1.10.0'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -284,7 +284,7 @@ function Get-Health {
   if ($wd -and $wd.problema) { $prob += $wd.msg }
   if ($grupos.offline.Count)     { $prob += "painel(is) $($grupos.offline -join ',') fechado(s)" }
   if ($grupos.naoResponde.Count) { $prob += "painel(is) $($grupos.naoResponde -join ',') sem resposta" }
-  if ($grupos.login.Count)       { $prob += "painel(is) $($grupos.login -join ',') na tela de login do Grafana" }
+  if ($grupos.login.Count)       { $prob += "painel(is) $($grupos.login -join ',') na tela de login" }
   if ($grupos.erro.Count)        { $prob += "painel(is) $($grupos.erro -join ',') com erro de rede" }
   if ($grupos.travado.Count)     { $prob += "painel(is) $($grupos.travado -join ',') com imagem congelada" }
   if ($null -ne $ram -and $ram -gt 90) { $prob += "RAM do PC em $ram%" }
@@ -543,6 +543,97 @@ $WorkerScript = {
       ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   }
 
+  # ---- login automatico em sites cadastrados (Conta > Logins de sites)
+  # $slog[n] = @{ id; tent; ult; falhou }: no maximo 1 tentativa a cada 45 s; depois de 3 sem sair da tela
+  # de login, para por 30 min (senha errada repetida pode bloquear a conta no AD).
+  $slog = @{}; $naLogin = @{}; $siteDe = @{}
+  $SiteEntropyW = [Text.Encoding]::UTF8.GetBytes('Scry-Site-v1')
+  # site cujo endereco e o comeco do link (o mais especifico ganha); $null se nenhum
+  function Find-SiteFor([string]$Url) {
+    $best = $null
+    foreach ($x in @($Cache['sites'])) {
+      if (-not $x -or -not $x.base) { continue }
+      $b = [string]$x.base
+      if ($Url.Length -ge $b.Length -and $Url.StartsWith($b, [StringComparison]::OrdinalIgnoreCase) -and
+          ($Url.Length -eq $b.Length -or '/?#'.Contains([string]$Url[$b.Length]) -or $b.EndsWith('/'))) {
+        if (-not $best -or $b.Length -gt $best.base.Length) { $best = $x }
+      }
+    }
+    return $best
+  }
+  # Ha um campo de senha visivel? (sem enviar a senha para a pagina)
+  function Test-LoginPage($T, $Site) {
+    $sel = if ($Site.campoSenha) { $Site.campoSenha } else { 'input[type=password]' }
+    $js = '(function(s){var l;try{l=document.querySelectorAll(s)}catch(e){return "seletor"}' +
+          'for(var i=0;i<l.length;i++){if(l[i].getClientRects().length)return "login"}return "ok"})(' + (ConvertTo-Json -InputObject $sel -Compress) + ')'
+    $r = Invoke-CdpCall $T.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = $js; returnByValue = $true } 5
+    return [string]$r.result.value
+  }
+  # Preenche usuario e senha e clica no botao de entrar. A pagina so recebe a senha se ainda estiver
+  # no endereco do site (confere de novo dentro da pagina, na hora).
+  function Invoke-SiteLogin($T, $Site) {
+    $pw = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String([string]$Site.senha), $SiteEntropyW, 'LocalMachine'))
+    $c = ConvertTo-Json -Compress -InputObject ([ordered]@{ base = [string]$Site.base; u = [string]$Site.usuario; p = $pw; lembrar = [bool]$Site.lembrar
+      su = [string]$Site.campoUsuario; sp = [string]$Site.campoSenha; sb = [string]$Site.botao })
+    $pw = $null
+    $r = Invoke-CdpCall $T.webSocketDebuggerUrl 'Runtime.evaluate' @{ expression = ($SiteLoginJs + '(' + $c + ')'); awaitPromise = $true; returnByValue = $true } 10
+    return [string]$r.result.value
+  }
+  $SiteLoginJs = @'
+(async function (c) {
+  var href = location.href.toLowerCase(), base = c.base.toLowerCase();
+  if (href.indexOf(base) !== 0 || (href.length > base.length && "/?#".indexOf(href.charAt(base.length)) < 0 && base.slice(-1) !== "/")) return "outro-endereco";
+  var vis = function (e) { return !!e && !e.disabled && e.getClientRects().length > 0; };
+  var all = function (s, root) { try { return Array.prototype.slice.call((root || document).querySelectorAll(s)); } catch (e) { return null; } };
+  var pick = function (s, root) { var l = all(s, root); if (l === null) return null; return l.filter(vis)[0] || null; };
+  var pw = pick(c.sp || "input[type=password]");
+  if (!pw) return "sem-campo-senha";
+  var form = pw.form || pw.closest("form") || document;
+  var us = null;
+  if (c.su) us = pick(c.su);
+  else {
+    var cands = (all("input:not([type]),input[type=text],input[type=email],input[type=tel]", form) || []).filter(vis);
+    if (!cands.length && form !== document) cands = (all("input:not([type]),input[type=text],input[type=email],input[type=tel]") || []).filter(vis);
+    for (var i = 0; i < cands.length; i++) if (cands[i].compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING) us = cands[i];
+    if (!us) us = cands[0] || null;
+  }
+  if (c.su && !us) return "sem-campo-usuario";
+  // valor pelo setter nativo + eventos: assim React/Angular/Vue enxergam o que foi digitado
+  var setv = function (e, v) {
+    e.focus();
+    var d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value"); d.set.call(e, v);
+    e.dispatchEvent(new Event("input", { bubbles: true })); e.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  if (us) setv(us, c.u);
+  setv(pw, c.p);
+  if (c.lembrar) {
+    // checkbox escondido atras de um botao "On/Off" tambem conta; o texto e o do rotulo ou de um bloco pequeno em volta
+    var cbs = all("input[type=checkbox]", form) || [];
+    if (!cbs.length && form !== document) cbs = all("input[type=checkbox]") || [];
+    for (var k = 0; k < cbs.length; k++) {
+      var cb = cbs[k], t = (cb.name || "") + " " + (cb.id || "");
+      if (cb.labels) for (var j = 0; j < cb.labels.length; j++) t += " " + cb.labels[j].textContent;
+      for (var a = cb.parentElement, h = 0; a && h < 4; a = a.parentElement, h++) { if ((a.textContent || "").length < 120) t += " " + a.textContent; }
+      if (/lembr|remember|manter|keep|salvar/i.test(t) && !cb.checked) cb.click();
+    }
+  }
+  await new Promise(function (r) { setTimeout(r, 400); });
+  var bt = null;
+  if (c.sb) { bt = pick(c.sb); if (!bt) return "sem-botao"; }
+  if (!bt) {
+    var bs = (all("button,input[type=submit],input[type=button],[role=button],a.btn", form) || []).filter(vis);
+    if (!bs.length && form !== document) bs = (all("button,input[type=submit],input[type=button],[role=button]") || []).filter(vis);
+    var txt = function (b) { return ((b.textContent || "") + " " + (b.value || "") + " " + (b.getAttribute("aria-label") || "")).trim(); };
+    bt = bs.filter(function (b) { return /entrar|login|log in|logon|acessar|sign in|continuar|enviar/i.test(txt(b)); })[0] ||
+         bs.filter(function (b) { return b.type === "submit"; })[0] || null;
+  }
+  if (bt) { bt.click(); return "enviado"; }
+  if (pw.form) { if (pw.form.requestSubmit) pw.form.requestSubmit(); else pw.form.submit(); return "enviado"; }
+  ["keydown", "keypress", "keyup"].forEach(function (ty) { pw.dispatchEvent(new KeyboardEvent(ty, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true })); });
+  return "enter";
+})
+'@
+
   while ($true) {
     # Protecao de memoria nesta thread (independe da thread HTTP, que pode estar presa)
     $mb = [math]::Round([Diagnostics.Process]::GetCurrentProcess().PrivateMemorySize64 / 1MB)
@@ -679,6 +770,53 @@ $WorkerScript = {
         } elseif (-not $t) { $Cache.Remove("img$n"); $Cache.Remove("imgT$n"); $semResp[$n] = 0; $hash.Remove($n); $erroPg.Remove($n) }
       }
 
+      # ---- login automatico em sites cadastrados (a cada 10 s, so nos paineis de um site com login)
+      if ($full) {
+        $rs = $Cache['slogReset']
+        if ($rs) { $Cache.Remove('slogReset'); foreach ($k in @($slog.Keys)) { if ($slog[$k].id -eq $rs) { $slog.Remove($k) } } }
+        foreach ($n in 0..($PanelCount - 1)) {
+          $s = $Cache["st$n"]
+          $site = $null
+          if (-not $abs.ContainsKey($n) -and -not $pausada -and $s -and $s.online -and $s.urlAtual) { $site = Find-SiteFor ([string]$s.urlAtual) }
+          if (-not $site) { $slog.Remove($n); $naLogin.Remove($n); $siteDe.Remove($n); $Cache.Remove("slog$n"); continue }
+          $siteDe[$n] = $site.id
+          try {
+            $t = Get-CdpTarget $n; if (-not $t) { continue }
+            $res = Test-LoginPage $t $site
+            if ($res -ne 'login') {
+              $naLogin.Remove($n)
+              if ($slog.ContainsKey($n) -and $slog[$n].tent -gt 0 -and $res -eq 'ok') { Add-Evento "painel ${n}: login em $($site.nome) feito" }
+              $slog.Remove($n)
+              if ($res -eq 'seletor') { $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'seletor'; desde = $now.ToString('s'); msg = 'seletor do campo de senha invalido' } }
+              else { $Cache.Remove("slog$n") }
+              continue
+            }
+            $naLogin[$n] = $true
+            if (-not $slog.ContainsKey($n) -or $slog[$n].id -ne $site.id) { $slog[$n] = @{ id = $site.id; tent = 0; ult = $null; falhou = $null; desde = $now; msg = '' } }
+            $L = $slog[$n]
+            if ($L.falhou) {
+              if (($now - $L.falhou).TotalMinutes -lt 30) { continue }
+              $L.falhou = $null; $L.tent = 0
+            }
+            if ($L.ult -and ($now - $L.ult).TotalSeconds -lt 45) { continue }
+            if ($L.tent -ge 3) {
+              $L.falhou = $now
+              $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'recusado'; desde = $L.desde.ToString('s'); msg = "3 tentativas sem sair da tela de login ($($L.msg)); nova tentativa em 30 min" }
+              Add-Evento "painel ${n}: login automatico em $($site.nome) nao entrou depois de 3 tentativas; tenta de novo em 30 min (confira usuario e senha em Conta > Logins de sites)"
+              continue
+            }
+            $L.tent++; $L.ult = $now
+            $r = Invoke-SiteLogin $t $site
+            $L.msg = $r
+            $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'entrando'; desde = $L.desde.ToString('s'); msg = "tentativa $($L.tent): $r" }
+            Add-Evento "painel ${n}: tela de login de $($site.nome), login automatico (tentativa $($L.tent): $r)"
+            $Cache["pedido$n"] = $now.AddSeconds(5)
+          } catch {
+            $Cache["slog$n"] = [pscustomobject]@{ id = $site.id; estado = 'erro'; desde = $now.ToString('s'); msg = $_.Exception.Message }
+          }
+        }
+      }
+
       # ---- avaliacao e auto-correcao (a cada 10 s)
       if ($full) {
         foreach ($n in 0..($PanelCount - 1)) {
@@ -690,7 +828,7 @@ $WorkerScript = {
           if (-not $s -or -not $s.online) { $c = 'offline' }
           elseif ([int]$semResp[$n] -ge 3) { $c = 'naoResponde' }
           elseif ($url -like 'chrome-error:*' -or $erroPg[$n]) { $c = 'erro' }
-          elseif ($url -match '^https?://[^?#]+/login([?#/]|$)') { $c = 'login' }
+          elseif ($naLogin[$n] -or $url -match '^https?://[^?#]+/login([?#/]|$)') { $c = 'login' }
           elseif ($man.congeladoMin -gt 0 -and $url -match '[?&]refresh=' -and $hashDesde[$n] -and ($now - $hashDesde[$n]).TotalMinutes -ge $man.congeladoMin) { $c = 'travado' }
           if (-not $c) { $Cache.Remove("al$n"); $cond.Remove($n); continue }
           if (-not $cond[$n] -or $cond[$n].c -ne $c) { $cond[$n] = @{ c = $c; t = $now } }
@@ -702,6 +840,7 @@ $WorkerScript = {
 
           # acao automatica (no maximo 1 a cada 5 min por painel; nunca no meio de uma acao do usuario)
           if (-not $man.auto -or $ocupado) { continue }
+          if ($c -eq 'login' -and $siteDe.ContainsKey($n)) { continue }     # site cadastrado: o login automatico acima cuida
           if ($ultAcao[$n] -and ($now - $ultAcao[$n]).TotalMinutes -lt 5) { continue }
           # congelado: no maximo recarregar e depois reabrir; se continuar igual, so alerta (pode ser estatico de verdade)
           if ($c -eq 'travado' -and [int]$congAcoes[$n] -ge 2) { continue }
@@ -1253,6 +1392,64 @@ function Test-GrafanaLogin([string]$Base, [string]$Usuario, [string]$Senha) {
   }
 }
 
+# ---------------------------------------------------------------- login automatico em outros sites
+# C:\NOC\Manager\sites.json = { sites = @( { id; nome; base; usuario; senha (DPAPI LocalMachine + entropia, base64);
+#   lembrar; campoUsuario; campoSenha; botao; atualizado; por } ) }
+# Fica na pasta do gerenciador (so SYSTEM e Administradores leem). Quem preenche o login e o worker
+# do gerenciador, pela porta de depuracao do Chrome: so quando o painel esta num link que comeca com
+# o endereco cadastrado E a pagina mostra um campo de senha. A senha nunca volta pela API.
+$SitesFile = Join-Path $ManagerDir 'sites.json'
+$SiteEntropy = [Text.Encoding]::UTF8.GetBytes('Scry-Site-v1')
+
+function Protect-SiteSecret([string]$Plain) {
+  return [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($Plain), $SiteEntropy, 'LocalMachine'))
+}
+function Get-Sites {
+  $d = $null; try { $d = Read-JsonFile $SitesFile } catch { Write-Diag "AVISO sites.json ilegivel: $($_.Exception.Message)" }
+  if (-not $d) { return @() }
+  return @($d.sites | Where-Object { $_ })
+}
+function Save-Sites($Lista) {
+  Write-JsonFile $SitesFile ([pscustomobject]@{ sites = @($Lista) })
+  Update-SitesCache @($Lista)
+}
+# O worker so recebe o necessario (a senha continua cifrada; ele decifra na hora de entrar)
+function Update-SitesCache($Lista) {
+  $Cache['sites'] = @($Lista | ForEach-Object {
+    [pscustomobject]@{ id = [string]$_.id; nome = [string]$_.nome; base = [string]$_.base; usuario = [string]$_.usuario; senha = [string]$_.senha
+      lembrar = [bool]$_.lembrar; campoUsuario = [string]$_.campoUsuario; campoSenha = [string]$_.campoSenha; botao = [string]$_.botao }
+  })
+}
+# Endereco do site: o comeco dos links (ex.: http://10.20.20.6/boss). Ignora ?... e #...; $null se invalido
+function ConvertTo-SiteBase([string]$Url) {
+  $Url = $Url.Trim()
+  if ($Url -notmatch '^https?://') { return $null }
+  $u = $null
+  if (-not [Uri]::TryCreate($Url, 'Absolute', [ref]$u)) { return $null }
+  if ($u.UserInfo -or -not $u.Host) { return $null }
+  return ($u.GetLeftPart('Authority') + $u.AbsolutePath).TrimEnd('/')
+}
+function Get-PublicSite($x) {
+  $paineis = @(); $estado = @()
+  for ($i = 0; $i -lt $PanelCount; $i++) {
+    $sl = $Cache["slog$i"]
+    if ($sl -and $sl.id -eq $x.id) { $paineis += $i; $estado += [pscustomobject]@{ n = $i; estado = $sl.estado; desde = $sl.desde; msg = $sl.msg } }
+  }
+  return [ordered]@{ id = $x.id; nome = $x.nome; base = $x.base; usuario = $x.usuario; temSenha = [bool]$x.senha; lembrar = [bool]$x.lembrar
+    campoUsuario = $x.campoUsuario; campoSenha = $x.campoSenha; botao = $x.botao; atualizado = $x.atualizado; por = $x.por
+    paineis = $paineis; estado = $estado }
+}
+function Test-SiteInput($b) {
+  $nome = ([string]$b.nome).Trim()
+  if (-not $nome -or $nome.Length -gt 60) { return 'Nome obrigatorio (ate 60 caracteres).' }
+  if (-not (ConvertTo-SiteBase ([string]$b.base))) { return 'Endereco invalido. Exemplo: http://10.20.20.6/boss' }
+  $u = ([string]$b.usuario).Trim()
+  if (-not $u -or $u.Length -gt 200) { return 'Informe o usuario (ate 200 caracteres).' }
+  if (([string]$b.senha).Length -gt 500) { return 'Senha longa demais.' }
+  foreach ($k in 'campoUsuario', 'campoSenha', 'botao') { if (([string]$b.$k).Length -gt 300) { return "Campo '$k' longo demais (ate 300 caracteres)." } }
+  return $null
+}
+
 # ---------------------------------------------------------------- assistente de configuracao
 $SetupTokens = @{}   # token -> validade (depois de informar o codigo)
 
@@ -1690,6 +1887,57 @@ function Invoke-Route($Ctx) {
         Start-WallWatchdog          # a parede refaz o login nos paineis que estiverem na tela de login
         Send-Json $Ctx 200 @{ ok = $true; msg = 'Login do Grafana salvo. Os paineis na tela de login entram em ate 1 minuto.' }; return
       }
+    }
+  }
+
+  # ---- logins de outros sites (BOSS, OpenFlow...): usuario e senha que o Scry preenche sozinho (so admin)
+  if ($path -match '^/api/sites(/([a-z0-9]+))?(/(entrar))?$') {
+    $sid = $Matches[2]; $sub = $Matches[4]
+    if (-not (Test-Role $s 'admin')) { Send-Json $Ctx 403 @{ erro = 'Somente administradores.' }; return }
+    $lista = @(Get-Sites)
+    if (-not $sid -and $method -eq 'GET') { Send-Json $Ctx 200 @{ sites = @($lista | ForEach-Object { Get-PublicSite $_ }) }; return }
+    if (-not $sid -and $method -eq 'POST') {
+      $b = Read-Body $Ctx
+      $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
+      if (-not [string]$b.senha) { Send-Json $Ctx 400 @{ erro = 'Informe a senha.' }; return }
+      $base = ConvertTo-SiteBase ([string]$b.base)
+      if ($lista | Where-Object { $_.base -eq $base }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco.' }; return }
+      $item = [pscustomobject]@{ id = ('s' + [guid]::NewGuid().ToString('N').Substring(0, 10)); nome = ([string]$b.nome).Trim(); base = $base
+        usuario = ([string]$b.usuario).Trim(); senha = (Protect-SiteSecret ([string]$b.senha)); lembrar = ($b.lembrar -ne $false)
+        campoUsuario = ([string]$b.campoUsuario).Trim(); campoSenha = ([string]$b.campoSenha).Trim(); botao = ([string]$b.botao).Trim()
+        atualizado = (Get-Date -Format s); por = $who }
+      Save-Sites (@($lista) + $item)
+      Write-Audit $who $ip 'SITE_LOGIN_ADICIONADO' "nome=$($item.nome) base=$base usuario=$($item.usuario)"
+      Send-Json $Ctx 200 @{ ok = $true; id = $item.id; msg = "Login de '$($item.nome)' salvo. Os paineis desse site na tela de login entram em ate 15 s." }; return
+    }
+    $item = $lista | Where-Object { $_.id -eq $sid } | Select-Object -First 1
+    if ($sid -and -not $item) { Send-Json $Ctx 404 @{ erro = 'Login inexistente.' }; return }
+    if ($sid -and $sub -eq 'entrar' -and $method -eq 'POST') {
+      $Cache['slogReset'] = $sid          # o worker esquece as tentativas desse site e tenta de novo agora
+      Write-Audit $who $ip 'SITE_LOGIN_TENTAR' "nome=$($item.nome)"
+      Send-Json $Ctx 200 @{ ok = $true; msg = "Tentando entrar em '$($item.nome)' nos paineis que estao na tela de login." }; return
+    }
+    if ($sid -and -not $sub -and $method -eq 'PUT') {
+      $b = Read-Body $Ctx
+      $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
+      $base = ConvertTo-SiteBase ([string]$b.base)
+      if ($lista | Where-Object { $_.base -eq $base -and $_.id -ne $sid }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco.' }; return }
+      # a senha salva nunca vai para outro endereco
+      if (-not [string]$b.senha -and $item.base -ne $base) { Send-Json $Ctx 400 @{ erro = 'Trocou o endereco: informe a senha de novo.' }; return }
+      $item.nome = ([string]$b.nome).Trim(); $item.base = $base; $item.usuario = ([string]$b.usuario).Trim()
+      if ([string]$b.senha) { $item.senha = Protect-SiteSecret ([string]$b.senha) }
+      $item.lembrar = ($b.lembrar -ne $false)
+      $item.campoUsuario = ([string]$b.campoUsuario).Trim(); $item.campoSenha = ([string]$b.campoSenha).Trim(); $item.botao = ([string]$b.botao).Trim()
+      $item.atualizado = (Get-Date -Format s); $item.por = $who
+      Save-Sites $lista
+      $Cache['slogReset'] = $sid
+      Write-Audit $who $ip 'SITE_LOGIN_ALTERADO' "nome=$($item.nome) base=$base usuario=$($item.usuario) senhaTrocada=$([bool][string]$b.senha)"
+      Send-Json $Ctx 200 @{ ok = $true; msg = "Login de '$($item.nome)' salvo." }; return
+    }
+    if ($sid -and -not $sub -and $method -eq 'DELETE') {
+      Save-Sites @($lista | Where-Object { $_.id -ne $sid })
+      Write-Audit $who $ip 'SITE_LOGIN_REMOVIDO' "nome=$($item.nome) base=$($item.base)"
+      Send-Json $Ctx 200 @{ ok = $true; msg = "Login de '$($item.nome)' removido." }; return
     }
   }
 
@@ -2165,6 +2413,7 @@ catch {
 }
 # pausa sobrevive a reinicios do gerenciador e do PC
 if (Test-Path $PauseFile) { try { $Cache['pausa'] = Read-JsonFile $PauseFile } catch {} }
+try { Update-SitesCache (Get-Sites) } catch {}
 try { $c0 = Get-Config; Update-MosaicCache (Get-Mosaic $c0); Update-ManutCache $c0; Update-EmptyCache $c0; Update-RotCache $c0 } catch { Write-Diag "AVISO paineis.json ilegivel: $($_.Exception.Message)" }
 # reinicios por memoria nas ultimas 24 h (para o /api/saude)
 try {

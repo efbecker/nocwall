@@ -23,7 +23,7 @@ $version = $m.Groups[1].Value
 # dados de producao: nunca vao para o pacote (mesma lista do .gitignore)
 $excluir = @(
   'paineis.json', 'grafana.cred', 'grafana.json', 'layout.json', 'pausado.json', 'run-hidden.vbs',
-  'deploy.log', 'start-wall.log', 'users.json', 'audit.log', 'manutencao-estado.json', 'setup.json'
+  'deploy.log', 'start-wall.log', 'users.json', 'sites.json', 'audit.log', 'manutencao-estado.json', 'setup.json'
 )
 $excluirPastas = @('profiles', 'backups')
 
