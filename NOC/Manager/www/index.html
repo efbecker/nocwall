@@ -818,17 +818,36 @@ function layout() {
   }
   return defaultLayout();
 }
+// Area de cada tela que existe na parede fisica: uma saida do Windows pode alimentar menos monitores do que
+// o tamanho dela sugere (ex.: saida 4K numa controladora com so 2 monitores). Os blocos desativados saem do
+// desenho; no modo Mosaico a tela aparece inteira, para reativar.
+function wallScreens(L) {
+  return L.telas.map((t, i) => {
+    const r = { ...t, num: i + 1, real: { w: t.w, h: t.h } };
+    if (selMode) return r;
+    const dentro = L.tiles.filter(k => Number(k.n) < N_PANELS && k.x + k.w / 2 >= t.x && k.x + k.w / 2 < t.x + t.w && k.y + k.h / 2 >= t.y && k.y + k.h / 2 < t.y + t.h);
+    const ativos = dentro.filter(k => !isOff(k.n));
+    if (!dentro.length || ativos.length === dentro.length) return r;
+    if (!ativos.length) return null;                                    // tela inteira desativada
+    const x0 = Math.min(...ativos.map(k => k.x)), y0 = Math.min(...ativos.map(k => k.y));
+    const x1 = Math.max(...ativos.map(k => k.x + k.w)), y1 = Math.max(...ativos.map(k => k.y + k.h));
+    return { ...r, x: x0, y: y0, w: x1 - x0, h: y1 - y0, parcial: true };
+  }).filter(Boolean);
+}
 function buildWall() {
   const L = layout(), cv = $("canvas");
-  const minX = Math.min(...L.telas.map(t => t.x)), minY = Math.min(...L.telas.map(t => t.y));
-  const maxX = Math.max(...L.telas.map(t => t.x + t.w)), maxY = Math.max(...L.telas.map(t => t.y + t.h));
+  const telas = wallScreens(L).length ? wallScreens(L) : L.telas.map((t, i) => ({ ...t, num: i + 1, real: { w: t.w, h: t.h } }));
+  const minX = Math.min(...telas.map(t => t.x)), minY = Math.min(...telas.map(t => t.y));
+  const maxX = Math.max(...telas.map(t => t.x + t.w)), maxY = Math.max(...telas.map(t => t.y + t.h));
   const W = maxX - minX, H = maxY - minY;
   const pct = (v, tot) => (v / tot * 100).toFixed(4) + "%";
   cv.innerHTML = "";
   cv.style.aspectRatio = `${W} / ${H}`;
-  L.telas.forEach((t, i) => {
+  telas.forEach((t) => {
     const up = t.y === minY && (t.y + t.h) < maxY;   // tela de cima de uma pilha: rotulo acima
-    const s = el("div", { class: "screen" }, el("span", { class: "lbl" + (up ? " up" : ""), text: `Tela ${i + 1} · ${t.w}×${t.h}` + (t.escala && t.escala !== 100 ? ` · escala ${t.escala}%` : "") }));
+    const txt = `Tela ${t.num} · ` + (t.parcial ? `${t.w}×${t.h} em uso (saída ${t.real.w}×${t.real.h})` : `${t.w}×${t.h}`) +
+                (t.escala && t.escala !== 100 ? ` · escala ${t.escala}%` : "");
+    const s = el("div", { class: "screen" }, el("span", { class: "lbl" + (up ? " up" : ""), text: txt }));
     Object.assign(s.style, { left: pct(t.x - minX, W), top: pct(t.y - minY, H), width: pct(t.w, W), height: pct(t.h, H) });
     cv.append(s);
   });
@@ -889,7 +908,9 @@ function buildWall() {
 let selMode = false, wallGeo = null;
 const selected = new Set();
 function setSelMode(on) {
+  const antes = selMode;
   selMode = !!on && can("admin");
+  if (antes !== selMode && cfg && [].concat(cfg.desativados || []).length) { buildWall(); }   // telas parciais: inteiras no Mosaico
   if (!selMode) selected.clear();
   $("selbar").classList.toggle("hidden", !selMode);
   $("canvas").classList.toggle("selmode", selMode);
