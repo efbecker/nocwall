@@ -30,7 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version     = '1.12.0'
+$Version     = '1.12.1'
 $ManagerDir  = Join-Path $Root 'Manager'
 $PauseFile   = Join-Path $Root 'pausado.json'     # existe = parede pausada (Start-Wall.ps1 respeita)
 $LayoutFile  = Join-Path $Root 'layout.json'      # gravado pelo Start-Wall.ps1 (telas e blocos reais)
@@ -584,7 +584,7 @@ $WorkerScript = {
       $b = [string]$x.base
       if ($Url.Length -ge $b.Length -and $Url.StartsWith($b, [StringComparison]::OrdinalIgnoreCase) -and
           ($Url.Length -eq $b.Length -or '/?#'.Contains([string]$Url[$b.Length]) -or $b.EndsWith('/'))) {
-        $so = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+        $so = @($x.soPaineis | Where-Object { "$_" -match '^\d{1,2}$' } | ForEach-Object { [int]"$_" })
         $score = $b.Length * 2
         if ($so.Count) { if ($N -lt 0 -or $so -notcontains [int]$N) { continue }; $score++ }
         if ($score -gt $bestScore) { $best = $x; $bestScore = $score }
@@ -1532,7 +1532,7 @@ function Update-SitesCache($Lista) {
   $Cache['sites'] = @($Lista | ForEach-Object {
     [pscustomobject]@{ id = [string]$_.id; nome = [string]$_.nome; base = [string]$_.base; usuario = [string]$_.usuario; senha = [string]$_.senha
       lembrar = [bool]$_.lembrar; campoUsuario = [string]$_.campoUsuario; campoSenha = [string]$_.campoSenha; botao = [string]$_.botao
-      soPaineis = @($_.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ }) }
+      soPaineis = @($_.soPaineis | Where-Object { "$_" -match '^\d{1,2}$' } | ForEach-Object { [int]"$_" }) }
   })
 }
 # Endereco do site: o comeco dos links (ex.: http://10.20.20.6/boss). Ignora ?... e #...; $null se invalido
@@ -1552,14 +1552,16 @@ function Get-PublicSite($x) {
   }
   return [ordered]@{ id = $x.id; nome = $x.nome; base = $x.base; usuario = $x.usuario; temSenha = [bool]$x.senha; lembrar = [bool]$x.lembrar
     campoUsuario = $x.campoUsuario; campoSenha = $x.campoSenha; botao = $x.botao; atualizado = $x.atualizado; por = $x.por
-    soPaineis = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+    soPaineis = @($x.soPaineis | Where-Object { "$_" -match '^\d{1,2}$' } | ForEach-Object { [int]"$_" })
     paineis = $paineis; estado = $estado }
 }
-function Get-SoPaineis($b) { return @(@($b.soPaineis) | Where-Object { $null -ne $_ -and "$_" -ne '' } | ForEach-Object { [int]$_ } | Sort-Object -Unique) }
+# Quem chama embrulha em [int[]]@(...): lista vazia sai da funcao como AutomationNull, que o ConvertTo-Json
+# do PowerShell 5.1 grava como {} - e o {} lido de volta quebrava a conversao para numero (v1.12.0).
+function Get-SoPaineis($b) { return @(@($b.soPaineis) | Where-Object { "$_" -match '^\d{1,2}$' } | ForEach-Object { [int]"$_" } | Sort-Object -Unique) }
 # dois logins do mesmo endereco so convivem se valerem para paineis diferentes
 function Test-SiteConflict($x, [string]$Base, $So) {
   if ([string]$x.base -ne $Base) { return $false }
-  $a = @($x.soPaineis | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+  $a = @($x.soPaineis | Where-Object { "$_" -match '^\d{1,2}$' } | ForEach-Object { [int]"$_" })
   if (-not $a.Count -and -not @($So).Count) { return $true }
   if (-not $a.Count -or -not @($So).Count) { return $false }
   return [bool](@($a | Where-Object { @($So) -contains $_ }).Count)
@@ -1571,7 +1573,7 @@ function Test-SiteInput($b) {
   $u = ([string]$b.usuario).Trim()
   if (-not $u -or $u.Length -gt 200) { return 'Informe o usuario (ate 200 caracteres).' }
   if (([string]$b.senha).Length -gt 500) { return 'Senha longa demais.' }
-  foreach ($v in @($b.soPaineis)) { $i = 0; if ($null -eq $v -or -not [int]::TryParse([string]$v, [ref]$i) -or $i -lt 0 -or $i -ge $MaxPanels) { return 'Paineis invalidos: use numeros separados por virgula (ex.: 8, 12).' } }
+  foreach ($v in @($b.soPaineis | Where-Object { $null -ne $_ })) { $i = 0; if ( -not [int]::TryParse([string]$v, [ref]$i) -or $i -lt 0 -or $i -ge $MaxPanels) { return 'Paineis invalidos: use numeros separados por virgula (ex.: 8, 12).' } }
   foreach ($k in 'campoUsuario', 'campoSenha', 'botao') { if (([string]$b.$k).Length -gt 300) { return "Campo '$k' longo demais (ate 300 caracteres)." } }
   return $null
 }
@@ -2027,7 +2029,7 @@ function Invoke-Route($Ctx) {
       $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
       if (-not [string]$b.senha) { Send-Json $Ctx 400 @{ erro = 'Informe a senha.' }; return }
       $base = ConvertTo-SiteBase ([string]$b.base)
-      $so = Get-SoPaineis $b
+      $so = [int[]]@(Get-SoPaineis $b)
       if ($lista | Where-Object { Test-SiteConflict $_ $base $so }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco (nos mesmos paineis). Para logins diferentes por painel, preencha "So nos paineis".' }; return }
       $item = [pscustomobject]@{ id = ('s' + [guid]::NewGuid().ToString('N').Substring(0, 10)); nome = ([string]$b.nome).Trim(); base = $base
         usuario = ([string]$b.usuario).Trim(); senha = (Protect-SiteSecret ([string]$b.senha)); lembrar = ($b.lembrar -ne $false)
@@ -2048,7 +2050,7 @@ function Invoke-Route($Ctx) {
       $b = Read-Body $Ctx
       $err = Test-SiteInput $b; if ($err) { Send-Json $Ctx 400 @{ erro = $err }; return }
       $base = ConvertTo-SiteBase ([string]$b.base)
-      $so = Get-SoPaineis $b
+      $so = [int[]]@(Get-SoPaineis $b)
       if ($lista | Where-Object { $_.id -ne $sid -and (Test-SiteConflict $_ $base $so) }) { Send-Json $Ctx 400 @{ erro = 'Ja existe um login para este endereco (nos mesmos paineis). Para logins diferentes por painel, preencha "So nos paineis".' }; return }
       # a senha salva nunca vai para outro endereco
       if (-not [string]$b.senha -and $item.base -ne $base) { Send-Json $Ctx 400 @{ erro = 'Trocou o endereco: informe a senha de novo.' }; return }
