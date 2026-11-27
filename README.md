@@ -79,7 +79,7 @@ Se o site pede login, um admin cadastra em **Conta → Logins de sites**: nome, 
 - **Trocar um dashboard:** passe o mouse num painel e clique em ✎ **Editar**, ou arraste um item da **Biblioteca** para o painel.
 - **Cenários:** salve a parede inteira (ex.: *Dia*, *Noite*, *Incidente*) e aplique com um clique. Trocou um painel? Clique em **💾 Salvar cenário** (aparece ao lado dos cenários) para a troca ficar no cenário.
 - **Rodízio de cenários:** a parede troca de cenário sozinha (ex.: *ARMAZEM* 5 min, *PLATINUM* 2 min), com pré-carga escondida, pausa automática quando um painel fica vermelho, agenda por horário e botões ⏸ Pausar e ⏭ Próximo.
-- **Mosaico:** junte painéis vizinhos numa tela maior.
+- **Mosaico:** junte painéis vizinhos numa tela maior, ou desative blocos que não existem na parede física (ex.: metade de uma saída 4K que só alimenta 2 monitores). Painel desativado some da grade e nunca abre; para reativar, entre no Mosaico de novo.
 - **Pausar a parede** por um tempo, **recarregar** ou **reabrir** tudo.
 - **Grafana em tela cheia:** os links de dashboard (`/d/...`) abrem com `kiosk`, sem o menu lateral. Para outro modo, escreva o `kiosk` no próprio link. O balão do Google Tradutor fica desligado nas telas.
 - **Usuários** com papéis `admin`, `operador` e `visualizador`, e auditoria de tudo.

@@ -181,6 +181,11 @@
   .tag.area { background: rgba(139,124,246,.85); color: #fff; font-weight: 600; }
   /* modo mosaico: clicar seleciona; a area resultante aparece tracejada */
   .canvas.selmode .card { cursor: pointer; }
+  /* painel desativado (bloco que nao existe na parede fisica): so aparece no modo Mosaico, para reativar */
+  .card.ghost { display: none; }
+  .canvas.selmode .card.ghost { display: block; cursor: default; }
+  .card.ghost .in { background: transparent; border: 1px dashed var(--muted); outline: none !important; display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 12px; padding: 6px; }
+  .card.ghost button { margin-top: 6px; }
   .canvas.selmode .card .acts { display: none; }
   .canvas.selmode .card .in { outline: 2px dashed rgba(139,124,246,.35); }
   .card.sel .in { outline: 3px solid var(--violet) !important; }
@@ -358,6 +363,7 @@
     <span class="msg" id="selMsg"></span>
     <button class="primary" id="selMerge" disabled>Mesclar…</button>
     <button id="selSplit" disabled>Separar</button>
+    <button id="selOff" disabled title="Para blocos que não existem na parede física: somem da grade e nunca abrem. Reative aqui no Mosaico.">Desativar</button>
     <button id="selClear">Limpar seleção</button>
     <button id="selDone">Concluir</button>
   </div>
@@ -699,7 +705,8 @@ const panelOf = (n) => (cfg.paineis || []).find(p => Number(p.n) === n);
 const mosaic = () => (cfg && cfg.mosaico) || [];
 const areaOf = (n) => mosaic().find(a => Number(a.n) === n) || null;
 const absorbedBy = (n) => { const a = mosaic().find(a => Number(a.n) !== n && (a.paineis || []).map(Number).includes(n)); return a ? Number(a.n) : null; };
-const visiblePanels = () => { const v = []; for (let n = 0; n < N_PANELS; n++) if (absorbedBy(n) === null && panelOf(n)) v.push(n); return v; };
+const isOff = (n) => [].concat((cfg && cfg.desativados) || []).map(Number).includes(Number(n));
+const visiblePanels = () => { const v = []; for (let n = 0; n < N_PANELS; n++) if (absorbedBy(n) === null && panelOf(n) && !isOff(n)) v.push(n); return v; };
 const mosSig = (m) => JSON.stringify((m || []).map(a => [Number(a.n), (a.paineis || []).map(Number).sort((x, y) => x - y).join(","), a.escala || "ampliar"]).sort((a, b) => a[0] - b[0]));
 function areaLabel(a) {
   const t = layout().tiles.find(x => Number(x.n) === Number(a.n)) || { w: 1920, h: 1080 };
@@ -829,6 +836,18 @@ function buildWall() {
   for (let n = 0; n < N_PANELS; n++) {
     const tl = L.tiles.find(t => Number(t.n) === n); if (!tl) continue;
     if (absorbedBy(n) !== null) { delete shownT[n]; continue; }      // fechado: faz parte de outro painel
+    if (isOff(n)) {                                                    // desativado: so o admin ve, no modo Mosaico
+      delete shownT[n];
+      if (can("admin")) {
+        const g = el("div", { class: "card ghost", id: "ghost" + n },
+          el("div", { class: "in" }, el("div", {},
+            el("div", { text: `Painel ${n} desativado` }),
+            el("button", { text: "Reativar", onclick: () => togglePanelsOff([n], false) }))));
+        Object.assign(g.style, { left: pct(tl.x - minX, W), top: pct(tl.y - minY, H), width: pct(tl.w, W), height: pct(tl.h, H) });
+        cv.append(g);
+      }
+      continue;
+    }
     const ar = areaOf(n);
     const gw = ar ? Number(ar.w) : tl.w, gh = ar ? Number(ar.h) : tl.h;
     const img = el("img", { id: "img" + n, alt: "", class: "hidden" });
@@ -896,6 +915,7 @@ function selectionArea() {
     const inside = t.x >= x0 && t.y >= y0 && t.x + t.w <= x1 && t.y + t.h <= y1;
     if (inside && !cells.has(Number(t.n))) {
       const ab = absorbedBy(Number(t.n));
+      if (isOff(t.n)) return { erro: `Não forma um retângulo: o painel ${t.n} está desativado no meio.`, box };
       return { erro: `Não forma um retângulo: inclua também o painel ${ab !== null ? ab : t.n}.`, box };
     }
   }
@@ -919,6 +939,7 @@ function renderSel() {
   else msg.textContent = `Painéis ${r.paineis.join(", ")} → painel ${r.n} em ${r.label}` + (r.telas > 1 ? ` · atravessa ${r.telas} monitores` : "");
   $("selMerge").disabled = !!r.erro;
   $("selSplit").disabled = !(one !== null && areaOf(one));
+  $("selOff").disabled = !selected.size || [...selected].some(n => areaOf(n));
   if (r.box && wallGeo) {
     const g = wallGeo, pct = (v, tot) => (v / tot * 100).toFixed(4) + "%";
     const b = el("div", { class: "selbox" + (r.erro ? " bad" : "") });
@@ -930,6 +951,22 @@ $("btnMosaic").onclick = () => setSelMode(!selMode);
 $("selDone").onclick = () => setSelMode(false);
 $("selClear").onclick = () => { selected.clear(); setSelMode(true); };
 $("selSplit").onclick = () => { const one = [...selected][0]; if (one !== undefined) splitArea(one); };
+$("selOff").onclick = () => {
+  const ns = [...selected].sort((a, b) => a - b); if (!ns.length) return;
+  if (!confirm(`Desativar ${ns.length > 1 ? "os painéis" : "o painel"} ${ns.join(", ")}? Use só para blocos que não existem na parede física. ` +
+               `${ns.length > 1 ? "Eles somem" : "Ele some"} da grade e a janela não abre mais. Para reativar, entre no Mosaico de novo.`)) return;
+  togglePanelsOff(ns, true);
+};
+// desativa/reativa paineis (somente admin): a grade muda, entao redesenha
+async function togglePanelsOff(ns, off) {
+  try {
+    let msg = "";
+    for (const n of ns) msg = (await api("POST", `/api/paineis/${n}/${off ? "desativar" : "reativar"}`, {})).msg;
+    selected.clear();
+    await loadState(); buildWall(); renderSel(); poll();
+    toast(ns.length > 1 ? `Painéis ${ns.join(", ")} ${off ? "desativados" : "reativados"}.` : msg);
+  } catch (e) { await loadState().catch(() => {}); buildWall(); toast(e.message, true); }
+}
 $("selMerge").onclick = () => {
   const r = selectionArea(); if (r.erro) return;
   $("mgTitle").textContent = `Mesclar painéis ${r.paineis.join(", ")} (${r.label})`;
