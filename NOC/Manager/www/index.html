@@ -587,7 +587,7 @@
     <h2>Logins de sites</h2>
     <div class="muted">Para dashboards de outros sites (BOSS, OpenFlow…). Quando um painel desse endereço mostrar a tela de login, o Scry preenche usuário e senha e clica em entrar sozinho. A senha fica guardada protegida pelo Windows e nunca é mostrada de volta. Use um usuário <b>só leitura</b>, criado só para a parede.</div>
     <table>
-      <thead><tr><th>Nome</th><th>Endereço</th><th>Usuário</th><th>Na parede agora</th><th></th></tr></thead>
+      <thead><tr><th>Nome</th><th>Endereço</th><th>Usuário</th><th>Painéis</th><th>Na parede agora</th><th></th></tr></thead>
       <tbody id="sBody"></tbody>
     </table>
     <h2 style="margin-top:20px" id="sFormTitle">Novo login</h2>
@@ -597,6 +597,9 @@
       <div><label for="sUser">Usuário</label><input id="sUser" autocomplete="off" spellcheck="false"></div>
       <div><label for="sPass">Senha</label><input id="sPass" type="password" autocomplete="new-password"></div>
     </div>
+    <label for="sSo">Só nos painéis (opcional)</label>
+    <input id="sSo" placeholder="ex.: 12 · em branco = todos os painéis desse endereço" spellcheck="false">
+    <div class="hint" style="word-break:normal">Use quando cada painel tem o seu usuário: cadastre um login por painel, com o mesmo endereço. Painéis com o mesmo login dividem uma única sessão (só um entra; os outros usam a sessão dele).</div>
     <label class="chk"><input type="checkbox" id="sLembrar" checked> Marcar “Lembrar-se de mim” / “Manter conectado”, se a tela tiver</label>
     <details style="margin-top:8px">
       <summary class="muted" style="cursor:pointer">Avançado: quando o Scry não acha os campos sozinho</summary>
@@ -1672,17 +1675,19 @@ function siteForm(x) {
   $("sNome").value = x ? x.nome : ""; $("sBase").value = x ? x.base : ""; $("sUser").value = x ? x.usuario : ""; $("sPass").value = "";
   $("sPass").placeholder = x && x.temSenha ? "•••••••• (salva; digite só para trocar)" : "";
   $("sLembrar").checked = x ? !!x.lembrar : true;
+  $("sSo").value = x && x.soPaineis ? x.soPaineis.join(", ") : "";
   $("sCU").value = x ? (x.campoUsuario || "") : ""; $("sCS").value = x ? (x.campoSenha || "") : ""; $("sBt").value = x ? (x.botao || "") : "";
   $("sCancel").classList.toggle("hidden", !x);
 }
 function renderSites() {
   const tb = $("sBody"); tb.innerHTML = "";
-  if (!sitesList.length) tb.append(el("tr", {}, el("td", { colspan: "5", class: "muted", text: "Nenhum login cadastrado." })));
+  if (!sitesList.length) tb.append(el("tr", {}, el("td", { colspan: "6", class: "muted", text: "Nenhum login cadastrado." })));
   for (const x of sitesList) {
     tb.append(el("tr", {},
       el("td", { text: x.nome, title: `Salvo por ${x.por || "?"} em ${fmtDt(x.atualizado)}` }),
       el("td", {}, el("code", { text: x.base })),
       el("td", { text: x.usuario }),
+      el("td", { text: (x.soPaineis && x.soPaineis.length) ? x.soPaineis.join(", ") : "todos" }),
       el("td", { class: "muted", style: "white-space:pre-line", text: siteStatus(x) }),
       el("td", { style: "white-space:nowrap" },
         el("button", { class: "small", text: "Entrar agora", title: "Tenta o login de novo nos painéis desse site que estão na tela de login", onclick: () => siteRetry(x) }),
@@ -1697,7 +1702,7 @@ $("btnSites").onclick = async () => {
 $("sCancel").onclick = () => siteForm(null);
 $("sSave").onclick = async () => {
   const body = { nome: $("sNome").value.trim(), base: $("sBase").value.trim(), usuario: $("sUser").value.trim(), senha: $("sPass").value,
-    lembrar: $("sLembrar").checked, campoUsuario: $("sCU").value.trim(), campoSenha: $("sCS").value.trim(), botao: $("sBt").value.trim() };
+    lembrar: $("sLembrar").checked, soPaineis: $("sSo").value.split(/[\s,;]+/).filter(Boolean).map(Number), campoUsuario: $("sCU").value.trim(), campoSenha: $("sCS").value.trim(), botao: $("sBt").value.trim() };
   try {
     const r = siteEditing ? await api("PUT", `/api/sites/${siteEditing}`, body) : await api("POST", "/api/sites", body);
     toast(r.msg); siteForm(null); await loadSites();
